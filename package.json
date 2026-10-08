@@ -1,0 +1,15 @@
+{
+  "name": "bi-integration-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dashboard estático offline para visualização e importação de dados de comércio exterior.",
+  "type": "module",
+  "scripts": {
+    "start": "node tools/serve.mjs 8765",
+    "dev": "node tools/serve.mjs 8765",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
