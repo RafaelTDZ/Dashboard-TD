@@ -1,0 +1,42 @@
+{
+  "generatedAt": "2026-09-10",
+  "strategy": "offline-vendored",
+  "libraries": [
+    {
+      "name": "Tailwind CSS browser bundle",
+      "version": "unknown",
+      "entry": "vendor/tailwind.js",
+      "sha256": "3F81AA7F6ECDB1ACC14C202E513DFEE00B6C7703CD81CE1BE25BF5215A92E8CB",
+      "origin": "https://tailwindcss.com/docs/installation/play-cdn"
+    },
+    {
+      "name": "Chart.js",
+      "version": "4.4.7",
+      "entry": "vendor/chart.umd.min.js",
+      "sha256": "206B6E8BB00FC7BBA2C7EE80CA41DB3E9E05BA7BE0AA35ABEBA9CFD5357F5D0E",
+      "origin": "https://www.chartjs.org/"
+    },
+    {
+      "name": "SheetJS Community Edition",
+      "version": "0.18.5",
+      "entry": "vendor/xlsx.full.min.js",
+      "sha256": "C9506197CAF809A075B6DEE1DA0D36FB19DA7158FFE8A88E7B0C96C5D8623C99",
+      "origin": "https://sheetjs.com/"
+    },
+    {
+      "name": "Font Awesome Free",
+      "version": "6.5.1",
+      "entry": "vendor/fontawesome/css/all.min.css",
+      "sha256": "C22CFB6520A7FDBB738632834019ACF47C78B1279462C0EB4CB83BAE83ECB5A7",
+      "origin": "https://fontawesome.com/"
+    },
+    {
+      "name": "Plus Jakarta Sans",
+      "version": "unknown",
+      "entry": "vendor/fonts/plus-jakarta-sans.css",
+      "sha256": "6F3EF71B71D721901AE0C7EF195599E7522910797859572563425574CF04363C",
+      "origin": "https://fonts.google.com/specimen/Plus+Jakarta+Sans"
+    }
+  ],
+  "note": "Hashes identify the checked-in bytes. Upstream release provenance was not present in the original repository."
+}

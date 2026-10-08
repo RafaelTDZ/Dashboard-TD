@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BI Integration Hub &amp; Dashboard - Gestão de Importações</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563eb'/%3E%3Cpath d='M8 21l5-6 4 3 7-9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <script src="vendor/tailwind.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            800: '#1e40af',
+                            900: '#1e3a8a'
+                        },
+                        darkbg: '#0b1120',
+                        darkcard: '#1e293b',
+                        darkborder: '#334155'
+                    }
+                }
+            }
+        };
+    </script>
+    <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="vendor/fonts/plus-jakarta-sans.css">
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <script defer src="vendor/chart.umd.min.js"></script>
+    <script defer src="assets/js/etl.js"></script>
+    <script defer src="assets/js/ui.js"></script>
+    <script defer src="assets/js/charts.js"></script>
+    <script defer src="assets/js/state.js"></script>
+    <script defer src="assets/js/app.js"></script>
+</head>
+<body data-ui-style="classic" class="bg-darkbg text-slate-100 min-h-screen flex flex-col antialiased">
+
+    <noscript>
+        <div class="bg-amber-950 border-b border-amber-800 text-amber-200 text-center text-sm p-3">
+            Este painel requer JavaScript habilitado para ler a planilha e renderizar os gráficos.
+        </div>
+    </noscript>
+
+    <header class="bg-slate-900/80 backdrop-blur-md border-b border-darkborder sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-[4rem] py-2 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-brand-500/20 shrink-0">
+                    <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+                </div>
+                <div class="min-w-0">
+                    <h1 class="font-bold text-lg text-white leading-tight truncate">BI Integration Hub</h1>
+                    <p class="text-xs text-slate-400 truncate">Gestão de Importações &amp; Automação de Dados</p>
+                </div>
+            </div>
+
+            <div class="header-actions flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+                <div id="style-switcher" class="style-switcher flex items-center gap-1 rounded-xl border border-slate-700/70 bg-slate-900/70 p-1" role="group" aria-label="Escolher estilo visual">
+                    <span class="hidden xl:inline px-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Visual</span>
+                    <button id="style-option-modern" type="button" data-ui-style-option="modern" aria-pressed="false" class="style-option px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 transition" title="Ativar novo visual shadcn (claro)">
+                        <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+                        <span class="hidden sm:inline">Novo</span>
+                    </button>
+                    <button id="style-option-classic" type="button" data-ui-style-option="classic" aria-pressed="true" class="style-option px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 transition" title="Ativar visual antigo (escuro)">
+                        <i class="fa-solid fa-layer-group" aria-hidden="true"></i>
+                        <span class="hidden sm:inline">Antigo</span>
+                    </button>
+                </div>
+
+                <nav class="main-tabs tablist flex bg-slate-800/80 p-1 rounded-xl border border-slate-700/50 max-w-full overflow-x-auto" role="tablist" aria-orientation="horizontal" aria-label="Seções do painel">
+                    <button id="tab-btn-dashboard" type="button" role="tab" tabindex="0" aria-selected="true" aria-controls="tab-dashboard" data-tab="dashboard" class="px-4 py-1.5 rounded-lg text-xs font-semibold text-white bg-brand-600 shadow transition-all">
+                        <i class="fa-solid fa-gauge-high mr-1.5" aria-hidden="true"></i> Dashboard Visual
+                    </button>
+                    <button id="tab-btn-data" type="button" role="tab" tabindex="-1" aria-selected="false" aria-controls="tab-data" data-tab="data" class="px-4 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition-all">
+                        <i class="fa-solid fa-table mr-1.5" aria-hidden="true"></i> Tabela de Dados
+                    </button>
+                    <button id="tab-btn-integration" type="button" role="tab" tabindex="-1" aria-selected="false" aria-controls="tab-integration" data-tab="integration" class="px-4 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition-all">
+                        <i class="fa-solid fa-code-branch mr-1.5" aria-hidden="true"></i> Código de Integração
+                    </button>
+                </nav>
+
+                <label class="upload-label cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-600/20">
+                    <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
+                    <span class="hidden sm:inline">Carregar Excel Atualizado</span>
+                    <span class="sm:hidden">Excel</span>
+                    <input type="file" id="excel-file-input" accept=".xlsx, .xls" class="sr-only" aria-label="Selecionar planilha Excel">
+                </label>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
+
+        <div id="status-banner" class="ui-status bg-brand-900/30 border border-brand-500/30 rounded-xl p-3 px-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300" aria-live="polite">
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true"></span>
+                <span id="banner-text">Carregando dataset...</span>
+            </div>
+            <span class="text-slate-400 text-[11px]" id="last-update-time"></span>
+        </div>
+
+        <section id="tab-dashboard" role="tabpanel" tabindex="0" aria-hidden="false" aria-labelledby="tab-btn-dashboard" class="tab-panel flex flex-col gap-6">
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+                <div class="ui-kpi bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4 flex flex-col justify-between hover:border-brand-500/50 transition">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium mb-2">
+                        <span>Volume Financeiro em USD</span>
+                        <i class="fa-solid fa-dollar-sign text-brand-400" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-2xl font-extrabold text-white" id="kpi-volume">—</div>
+                    <div class="text-[11px] text-emerald-400 mt-1 font-semibold" id="kpi-volume-hint"></div>
+                </div>
+
+                <div class="ui-kpi bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4 flex flex-col justify-between hover:border-brand-500/50 transition">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium mb-2">
+                        <span>Total de Processos</span>
+                        <i class="fa-solid fa-boxes-packing text-brand-400" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-2xl font-extrabold text-white" id="kpi-processos">—</div>
+                    <div class="text-[11px] text-slate-400 mt-1">Registros filtrados</div>
+                </div>
+
+                <div class="ui-kpi bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4 flex flex-col justify-between hover:border-brand-500/50 transition">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium mb-2">
+                        <span>Peso Movimentado</span>
+                        <i class="fa-solid fa-weight-hanging text-brand-400" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-2xl font-extrabold text-white" id="kpi-peso">—</div>
+                    <div class="text-[11px] text-slate-400 mt-1">Peso informado em toneladas</div>
+                </div>
+
+                <div class="ui-kpi bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4 flex flex-col justify-between hover:border-brand-500/50 transition">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium mb-2">
+                        <span>Ticket Médio</span>
+                        <i class="fa-solid fa-receipt text-brand-400" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-2xl font-extrabold text-white" id="kpi-ticket">—</div>
+                    <div class="text-[11px] text-slate-400 mt-1">Média por registro com valor USD</div>
+                </div>
+
+                <div class="ui-kpi bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4 flex flex-col justify-between hover:border-brand-500/50 transition">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium mb-2">
+                        <span>Taxa de Conclusão</span>
+                        <i class="fa-solid fa-circle-check text-emerald-400" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-2xl font-extrabold text-emerald-400" id="kpi-conclusao">—</div>
+                    <div class="text-[11px] text-emerald-400/80 mt-1">Considera Situação concluída/arquivada; cancelados ficam pendentes</div>
+                </div>
+
+                <div class="ui-kpi bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4 flex flex-col justify-between hover:border-brand-500/50 transition">
+                    <div class="flex items-center justify-between text-slate-400 text-xs font-medium mb-2">
+                        <span>SLA Reg. DI</span>
+                        <i class="fa-solid fa-clock text-amber-400" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-2xl font-extrabold text-white" id="kpi-sla">—</div>
+                    <div class="text-[11px] text-amber-400 mt-1" id="kpi-sla-hint">Tempo médio de registro</div>
+                </div>
+            </div>
+
+            <div class="ui-filter-panel bg-slate-800/40 border border-slate-700/50 rounded-2xl p-4 flex flex-wrap gap-4 items-center justify-between text-xs">
+                <div class="flex items-center gap-2 font-semibold text-slate-300">
+                    <i class="fa-solid fa-filter text-brand-400" aria-hidden="true"></i>
+                    <span>Filtros Dinâmicos:</span>
+                </div>
+                <div class="flex flex-wrap gap-3 flex-grow max-w-5xl items-center">
+                    <input type="text" id="filter-operacao" placeholder="Operação / Processo..." aria-label="Filtrar por operação ou processo" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500 w-40">
+
+                    <select id="filter-analista" aria-label="Filtrar por analista" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
+                        <option value="ALL">Todos os Analistas</option>
+                    </select>
+
+                    <label for="monthly-year" class="sr-only">Filtrar todo o dashboard por ano</label>
+                    <select id="monthly-year" aria-label="Filtrar todo o dashboard por ano" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
+                        <option value="LATEST">Ano mais recente</option>
+                        <option value="ALL">Todos os anos</option>
+                    </select>
+
+                    <select id="filter-mes" aria-label="Filtrar por mês" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
+                        <option value="ALL">Todos os Meses</option>
+                    </select>
+
+                    <select id="filter-situacao" aria-label="Filtrar por situação" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
+                        <option value="ALL">Todas as Situações</option>
+                        <option value="Concluida">Concluídos / Arquivados</option>
+                        <option value="Andamento">Em Andamento</option>
+                    </select>
+
+                    <select id="filter-reg-di" aria-label="Filtrar por registro DI" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
+                        <option value="ALL">Reg. DI (Todos)</option>
+                        <option value="REGISTRADA">DI Registrada</option>
+                        <option value="PENDENTE">DI Pendente / Não Registrada</option>
+                    </select>
+
+                    <select id="filter-mercadoria" aria-label="Filtrar por mercadoria" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
+                        <option value="ALL">Todas as Mercadorias</option>
+                    </select>
+
+                    <select id="filter-modal" aria-label="Filtrar por modal LCL ou FCL" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
+                        <option value="ALL">LCL / FCL (Todos)</option>
+                        <option value="FCL">FCL (Container Cheio)</option>
+                        <option value="LCL">LCL (Carga Fracionada)</option>
+                        <option value="OUTROS">Outros / Aéreo</option>
+                    </select>
+
+                    <select id="filter-incoterm" aria-label="Filtrar por incoterm" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
+                        <option value="ALL">Todos Incoterms</option>
+                    </select>
+
+                    <button id="btn-reset-filters" type="button" class="text-slate-400 hover:text-white underline text-xs ml-auto">Limpar Filtros</button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div class="ui-chart-card lg:col-span-7 bg-slate-800/60 border border-slate-700/50 rounded-2xl p-5 flex flex-col">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-bold text-white text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-user-tie text-brand-400" aria-hidden="true"></i>
+                                Valor USD Movimentado por Analista
+                        </h3>
+                        <span class="text-[11px] text-slate-400">Valores em USD</span>
+                    </div>
+                    <div class="chart-box relative h-64 w-full">
+                        <canvas id="chart-analistas" aria-label="Gráfico de barras do valor movimentado por analista" aria-describedby="chart-analistas-summary" role="img"></canvas>
+                        <p id="chart-analistas-summary" class="sr-only"></p>
+                        <div class="chart-empty hidden">Sem dados para os filtros selecionados</div>
+                    </div>
+                </div>
+
+                <div class="ui-chart-card lg:col-span-5 bg-slate-800/60 border border-slate-700/50 rounded-2xl p-5 flex flex-col">
+                    <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+                        <div>
+                            <h3 class="font-bold text-white text-sm flex items-center gap-2">
+                                <i class="fa-solid fa-chart-line text-emerald-400" aria-hidden="true"></i>
+                                Evolução Mensal de Processos
+                            </h3>
+                            <p class="text-[11px] text-slate-500 mt-1">Processos por ETA; se faltar, usa ETS. Sem ambas, o processo fica fora da evolução mensal.</p>
+                        </div>
+                        <div class="text-right leading-tight shrink-0">
+                            <span id="monthly-insight" class="block text-[11px] font-semibold text-emerald-300" aria-live="polite">Sem dados</span>
+                        </div>
+                    </div>
+                    <div class="chart-box relative h-64 w-full">
+                        <canvas id="chart-mensal" aria-label="Gráfico de linha da evolução mensal de processos" aria-describedby="chart-mensal-summary" role="img"></canvas>
+                        <p id="chart-mensal-summary" class="sr-only"></p>
+                        <div class="chart-empty hidden">Sem dados para os filtros selecionados</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div class="ui-chart-card lg:col-span-4 bg-slate-800/60 border border-slate-700/50 rounded-2xl p-5 flex flex-col">
+                    <h3 class="font-bold text-white text-sm mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-anchor text-cyan-400" aria-hidden="true"></i>
+                        Top Portos de Origem (China / Global)
+                    </h3>
+                    <div class="chart-box relative h-60 w-full">
+                        <canvas id="chart-origem" aria-label="Gráfico de barras dos principais portos de origem" aria-describedby="chart-origem-summary" role="img"></canvas>
+                        <p id="chart-origem-summary" class="sr-only"></p>
+                        <div class="chart-empty hidden">Sem dados para os filtros selecionados</div>
+                    </div>
+                </div>
+
+                <div class="ui-chart-card lg:col-span-4 bg-slate-800/60 border border-slate-700/50 rounded-2xl p-5 flex flex-col">
+                    <h3 class="font-bold text-white text-sm mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-location-dot text-amber-400" aria-hidden="true"></i>
+                        Portos de Destino (Santa Catarina / BR)
+                    </h3>
+                    <div class="chart-box relative h-60 w-full">
+                        <canvas id="chart-destino" aria-label="Gráfico de barras dos portos de destino" aria-describedby="chart-destino-summary" role="img"></canvas>
+                        <p id="chart-destino-summary" class="sr-only"></p>
+                        <div class="chart-empty hidden">Sem dados para os filtros selecionados</div>
+                    </div>
+                </div>
+
+                <div class="ui-chart-card lg:col-span-4 bg-slate-800/60 border border-slate-700/50 rounded-2xl p-5 flex flex-col">
+                    <h3 class="font-bold text-white text-sm mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-pie text-purple-400" aria-hidden="true"></i>
+                        Distribuição por Incoterm
+                    </h3>
+                    <div class="chart-box relative h-60 w-full">
+                        <canvas id="chart-incoterm" aria-label="Gráfico de rosca da distribuição por incoterm" aria-describedby="chart-incoterm-summary" role="img"></canvas>
+                        <p id="chart-incoterm-summary" class="sr-only"></p>
+                        <div class="chart-empty hidden">Sem dados para os filtros selecionados</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="ui-chart-card bg-slate-800/60 border border-slate-700/50 rounded-2xl p-5 flex flex-col">
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <h3 class="font-bold text-white text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-user-group text-purple-400" aria-hidden="true"></i>
+                            Quantidade de Processos por Agente
+                        </h3>
+                        <span class="text-[11px] text-slate-400 shrink-0">Top 10</span>
+                    </div>
+                    <div class="chart-box relative h-72 w-full">
+                        <canvas id="chart-agentes" aria-label="Gráfico de barras da quantidade de processos por agente" aria-describedby="chart-agentes-summary" role="img"></canvas>
+                        <p id="chart-agentes-summary" class="sr-only"></p>
+                        <div class="chart-empty hidden">Sem dados para os filtros selecionados</div>
+                    </div>
+                </div>
+
+                <div class="ui-chart-card bg-slate-800/60 border border-slate-700/50 rounded-2xl p-5 flex flex-col">
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <h3 class="font-bold text-white text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-tags text-brand-400" aria-hidden="true"></i>
+                            Quantidade por Sigla da Operação
+                        </h3>
+                        <span class="text-[11px] text-slate-400 shrink-0">Top 10</span>
+                    </div>
+                    <div class="chart-box relative h-72 w-full">
+                        <canvas id="chart-operacao-siglas" aria-label="Gráfico de barras da quantidade de processos por sigla da operação" aria-describedby="chart-operacao-siglas-summary" role="img"></canvas>
+                        <p id="chart-operacao-siglas-summary" class="sr-only"></p>
+                        <div class="chart-empty hidden">Sem dados para os filtros selecionados</div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <section id="tab-data" role="tabpanel" tabindex="0" aria-hidden="true" aria-labelledby="tab-btn-data" hidden class="tab-panel hidden flex flex-col gap-4">
+            <div class="ui-table-toolbar bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center gap-3">
+                    <input type="text" id="table-search" placeholder="Buscar processo, mercadoria, analista, porto..." aria-label="Buscar na tabela" class="bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-4 py-2 w-72 focus:outline-none focus:border-brand-500">
+                    <span class="text-xs text-slate-400" id="table-count">—</span>
+                </div>
+                <button id="btn-export-csv" type="button" class="bg-slate-700 hover:bg-slate-600 text-white text-xs px-3 py-1.5 rounded-xl font-semibold transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-download" aria-hidden="true"></i> Exportar CSV
+                </button>
+            </div>
+
+            <div class="ui-table-panel bg-slate-800/60 border border-slate-700/50 rounded-2xl overflow-hidden custom-scrollbar">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs text-slate-300">
+                        <thead id="table-head" class="bg-slate-900/80 text-slate-400 font-bold uppercase border-b border-slate-700">
+                            <tr>
+                                <th scope="col" class="p-3.5" aria-sort="none"><button type="button" data-sort="month">Mês <i class="fa-solid fa-sort text-[10px] text-slate-600" aria-hidden="true"></i></button></th>
+                                <th scope="col" class="p-3.5" aria-sort="none"><button type="button" data-sort="operacao">Operação <i class="fa-solid fa-sort text-[10px] text-slate-600" aria-hidden="true"></i></button></th>
+                                <th scope="col" class="p-3.5" aria-sort="none"><button type="button" data-sort="analista">Analista <i class="fa-solid fa-sort text-[10px] text-slate-600" aria-hidden="true"></i></button></th>
+                                <th scope="col" class="p-3.5" aria-sort="none"><button type="button" data-sort="mercadoria">Mercadoria <i class="fa-solid fa-sort text-[10px] text-slate-600" aria-hidden="true"></i></button></th>
+                                <th scope="col" class="p-3.5" aria-sort="none"><button type="button" data-sort="modal">LCL / FCL <i class="fa-solid fa-sort text-[10px] text-slate-600" aria-hidden="true"></i></button></th>
+                                <th scope="col" class="p-3.5" aria-sort="none"><button type="button" data-sort="regDi">Reg. DI <i class="fa-solid fa-sort text-[10px] text-slate-600" aria-hidden="true"></i></button></th>
+                                <th scope="col" class="p-3.5" aria-sort="none"><button type="button" data-sort="situacao">Situação <i class="fa-solid fa-sort text-[10px] text-slate-600" aria-hidden="true"></i></button></th>
+                                <th scope="col" class="p-3.5" aria-sort="none"><button type="button" data-sort="rota">Origem / Destino <i class="fa-solid fa-sort text-[10px] text-slate-600" aria-hidden="true"></i></button></th>
+                                <th scope="col" class="p-3.5" aria-sort="none"><button type="button" data-sort="incoterm">Incoterm <i class="fa-solid fa-sort text-[10px] text-slate-600" aria-hidden="true"></i></button></th>
+                                <th scope="col" class="p-3.5 text-right" aria-sort="none"><button type="button" data-sort="valor">Valor / Moeda <i class="fa-solid fa-sort text-[10px] text-slate-600" aria-hidden="true"></i></button></th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body" class="divide-y divide-slate-700/50"></tbody>
+                    </table>
+                </div>
+                <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-slate-700/50 text-xs text-slate-400">
+                    <span id="page-info">Página 1 de 1</span>
+                    <div class="flex items-center gap-3">
+                        <label class="flex items-center gap-2">Itens por página
+                            <select id="page-size" aria-label="Itens por página" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-500">
+                                <option value="25">25</option>
+                                <option value="50" selected>50</option>
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                            </select>
+                        </label>
+                        <button id="page-prev" type="button" class="page-btn">Anterior</button>
+                        <button id="page-next" type="button" class="page-btn">Próxima</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="tab-integration" role="tabpanel" tabindex="0" aria-hidden="true" aria-labelledby="tab-btn-integration" hidden class="tab-panel hidden flex flex-col gap-6">
+            <div class="ui-integration-panel bg-slate-800/60 border border-slate-700/50 rounded-2xl p-6">
+                <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
+                    <i class="fa-solid fa-diagram-project text-brand-400" aria-hidden="true"></i>
+                    Como Conectar esta Planilha ao Power BI / Python Automaticamente
+                </h2>
+                <p class="text-xs text-slate-300 mb-6 leading-relaxed">
+                    Existem duas maneiras principais para integrar a planilha <code>!Importações.xlsx</code> de forma dinâmica com sistemas de Business Intelligence, sem intervenção manual diária:
+                </p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="ui-integration-option bg-slate-900 border border-slate-700 rounded-xl p-5 flex flex-col justify-between gap-4">
+                        <div>
+                            <div class="flex items-center gap-2 font-bold text-emerald-400 text-sm mb-2">
+                                <i class="fa-brands fa-python" aria-hidden="true"></i> Opção A: Script Python Automatizado (ETL)
+                            </div>
+                            <p class="text-xs text-slate-400">
+                                Lê a planilha, converte valores em formato pt-BR/US de forma segura e atualiza um banco SQLite (pode ser trocado por Postgres/SQL Server).
+                            </p>
+                        </div>
+                        <button type="button" data-copy="python-code" class="self-start bg-slate-800 hover:bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg border border-slate-600 font-semibold transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-copy" aria-hidden="true"></i> Copiar Código Python
+                        </button>
+                    </div>
+
+                    <div class="ui-integration-option bg-slate-900 border border-slate-700 rounded-xl p-5 flex flex-col justify-between gap-4">
+                        <div>
+                            <div class="flex items-center gap-2 font-bold text-amber-400 text-sm mb-2">
+                                <i class="fa-solid fa-plug" aria-hidden="true"></i> Opção B: Conexão Direta no Power BI Desktop
+                            </div>
+                            <p class="text-xs text-slate-400">
+                                Conecte via Power Query usando pasta de rede ou SharePoint/OneDrive para atualização agendada no Power BI Service.
+                            </p>
+                        </div>
+                        <button type="button" data-copy="powerbi-code" class="self-start bg-slate-800 hover:bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg border border-slate-600 font-semibold transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-copy" aria-hidden="true"></i> Copiar Código M (Power Query)
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="ui-code-panel bg-slate-900 border border-slate-700 rounded-2xl p-5 overflow-hidden">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+                        <span class="text-xs font-bold text-emerald-400"><i class="fa-brands fa-python mr-1" aria-hidden="true"></i> Script ETL Python (pandas &amp; sqlite3)</span>
+                        <span class="text-[10px] text-slate-500">pipeline_importacoes.py</span>
+                    </div>
+                    <pre class="text-[11px] text-slate-300 custom-scrollbar overflow-x-auto leading-relaxed" id="python-code">import re
+import sqlite3
+import pandas as pd
+
+def parse_number(value):
+    if pd.isna(value):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = re.sub(r"[^\d,.-]", "", str(value)).strip()
+    if not text:
+        return 0.0
+    if "," in text and "." in text:
+        if text.rfind(",") &gt; text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", "")
+    elif "," in text:
+        parts = text.split(",")
+        if len(parts) == 2 and len(parts[1]) &lt;= 2:
+            text = parts[0] + "." + parts[1]
+        else:
+            text = text.replace(",", "")
+    try:
+        return float(text)
+    except ValueError:
+        return 0.0
+
+def process_excel_to_bi(file_path, sheet_name=0):
+    df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
+    if "Valor USD" not in df.columns:
+        raise KeyError("Coluna 'Valor USD' não encontrada. Ajuste o mapeamento.")
+    df["Valor_USD_Clean"] = df["Valor USD"].map(parse_number)
+    if "Peso (kg)" in df.columns:
+        df["Peso_Kg_Clean"] = df["Peso (kg)"].map(parse_number)
+    conn = sqlite3.connect("bi_importacoes.db")
+    df.to_sql("tb_importacoes", conn, if_exists="replace", index=False)
+    conn.close()
+
+if __name__ == "__main__":
+    process_excel_to_bi("!Importações.xlsx", sheet_name="!Importações")</pre>
+                </div>
+
+                <div class="ui-code-panel bg-slate-900 border border-slate-700 rounded-2xl p-5 overflow-hidden">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+                        <span class="text-xs font-bold text-amber-400"><i class="fa-solid fa-code mr-1" aria-hidden="true"></i> Código M (Power Query Advanced Editor)</span>
+                        <span class="text-[10px] text-slate-500">PowerQuery_Transform.m</span>
+                    </div>
+                    <pre class="text-[11px] text-slate-300 custom-scrollbar overflow-x-auto leading-relaxed" id="powerbi-code">let
+    CaminhoArquivo = "C:\Caminho\!Importações.xlsx",
+    Fonte = Excel.Workbook(File.Contents(CaminhoArquivo), null, true),
+    Guia = try Fonte{[Item="!Importações", Kind="Sheet"]}[Data] otherwise Fonte{0}[Data],
+    Cabecalhos = Table.PromoteHeaders(Guia, [PromoteAllScalars=true]),
+    Tipos = Table.TransformColumnTypes(
+        Cabecalhos,
+        {
+            {"Valor USD", type number},
+            {"Peso (kg)", type number}
+        },
+        "pt-BR"
+    )
+in
+    Tipos</pre>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-slate-900 border-t border-slate-800 py-4 text-center text-xs text-slate-500">
+        BI Integration Hub &amp; Executive Analytics &bull; Gestão de Importações
+    </footer>
+
+    <div id="modal" hidden class="hidden fixed inset-0 z-[60] items-center justify-center p-4" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="modal-title" aria-describedby="modal-body" tabindex="-1">
+        <div class="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" data-modal-close></div>
+        <div class="ui-modal relative w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between p-4 border-b border-slate-800">
+                <h3 id="modal-title" class="font-bold text-white text-sm"></h3>
+                <button type="button" data-modal-close data-modal-close-button class="text-slate-400 hover:text-white transition" aria-label="Fechar janela">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            </div>
+            <div id="modal-body" class="p-4 overflow-y-auto custom-scrollbar text-xs text-slate-300"></div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="fixed bottom-4 right-4 z-[70] flex flex-col gap-2 w-[calc(100%-2rem)] max-w-sm pointer-events-none"></div>
+
+</body>
+</html>
