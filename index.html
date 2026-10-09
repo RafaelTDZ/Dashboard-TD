@@ -103,7 +103,8 @@
 
     <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
 
-        <div id="status-banner" class="ui-status bg-brand-900/30 border border-brand-500/30 rounded-xl p-3 px-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300" aria-live="polite">
+        <!-- Card transitório: começa escondido e só aparece depois que um arquivo é carregado. -->
+        <div id="status-banner" hidden class="ui-status bg-brand-900/30 border border-brand-500/30 rounded-xl p-3 px-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300" aria-live="polite">
             <div class="flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true"></span>
                 <span id="banner-text">Carregando dataset...</span>
