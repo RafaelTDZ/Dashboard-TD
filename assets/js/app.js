@@ -982,16 +982,18 @@
       filters: state.filters,
       search: state.search
     };
-    return Promise.all([
-      idbSet(SNAPSHOT_KEY, snapshot),
-      global.SupabaseStorage && global.SupabaseStorage.saveSnapshot
-        ? global.SupabaseStorage.saveSnapshot(snapshot).catch(function (error) {
-          console.error('[BI Hub] Falha ao salvar no Supabase.', error);
-          return false;
-        })
-        : Promise.resolve(false)
-    ]).then(function (results) {
-      return results[0];
+    var remoteSave = global.SupabaseStorage && global.SupabaseStorage.saveSnapshot
+      ? global.SupabaseStorage.saveSnapshot(snapshot).catch(function (error) {
+        console.error('[BI Hub] Falha ao salvar no Supabase.', error);
+        return false;
+      })
+      : Promise.resolve(false);
+
+    return remoteSave.then(function (savedRemotely) {
+      // O IndexedDB permanece apenas como cache offline; o Supabase é a fonte principal.
+      return idbSet(SNAPSHOT_KEY, snapshot).then(function () {
+        return savedRemotely;
+      });
     });
   }
 
@@ -1016,16 +1018,27 @@
   }
 
   function restoreState() {
-    return idbGet(SNAPSHOT_KEY).then(function (snapshot) {
-      if (global.DashboardState.isValidSnapshot(snapshot)) return snapshot;
-      if (!global.SupabaseStorage || !global.SupabaseStorage.getLatestSnapshot) return null;
-      return global.SupabaseStorage.getLatestSnapshot().then(function (remoteSnapshot) {
-        return global.DashboardState.isValidSnapshot(remoteSnapshot) ? remoteSnapshot : null;
-      }).catch(function (error) {
+    var remoteRestore = global.SupabaseStorage && global.SupabaseStorage.getLatestSnapshot
+      ? global.SupabaseStorage.getLatestSnapshot().catch(function (error) {
         console.error('[BI Hub] Falha ao restaurar do Supabase.', error);
         return null;
+      })
+      : Promise.resolve(null);
+
+    return remoteRestore.then(function (remoteSnapshot) {
+      if (global.DashboardState.isValidSnapshot(remoteSnapshot)) {
+        // Atualiza o cache local apenas depois de aceitar o Supabase como fonte principal.
+        idbSet(SNAPSHOT_KEY, remoteSnapshot).catch(function () { /* cache opcional */ });
+        return remoteSnapshot;
+      }
+      return idbGet(SNAPSHOT_KEY).then(function (cachedSnapshot) {
+        return global.DashboardState.isValidSnapshot(cachedSnapshot) ? cachedSnapshot : null;
       });
-    }).catch(function () { return null; });
+    }).catch(function () {
+      return idbGet(SNAPSHOT_KEY).then(function (cachedSnapshot) {
+        return global.DashboardState.isValidSnapshot(cachedSnapshot) ? cachedSnapshot : null;
+      });
+    });
   }
 
   document.addEventListener('DOMContentLoaded', init);
