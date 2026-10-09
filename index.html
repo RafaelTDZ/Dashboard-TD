@@ -50,7 +50,7 @@
     </noscript>
 
     <header class="bg-slate-900/80 backdrop-blur-md border-b border-darkborder sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-[4rem] py-2 flex flex-wrap items-center justify-between gap-3">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-[4rem] py-2 flex flex-wrap items-start justify-between gap-3">
             <div class="flex items-center gap-3 min-w-0">
                 <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-brand-500/20 shrink-0">
                     <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
@@ -61,7 +61,19 @@
                 </div>
             </div>
 
-            <div class="header-actions flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+            <div class="flex flex-col items-center gap-1 ml-1 sm:ml-3 self-start">
+                <label class="upload-label cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-600/20">
+                    <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
+                    <span class="hidden sm:inline">Carregar Excel Atualizado</span>
+                    <span class="sm:hidden">Excel</span>
+                    <input type="file" id="excel-file-input" accept=".xlsx, .xls" class="sr-only" aria-label="Selecionar planilha Excel">
+                </label>
+                <div class="flex items-center gap-1.5 text-[10px] text-slate-400" title="Data e hora da última leitura do Excel">
+                    <i class="fa-solid fa-clock-rotate-left text-brand-400" aria-hidden="true"></i>
+                    <span id="last-read-header">Última leitura: aguardando arquivo</span>
+                </div>
+            </div>
+            <div class="header-actions w-full flex items-center gap-2 sm:gap-3 flex-wrap justify-start">
                 <div id="style-switcher" class="style-switcher flex items-center gap-1 rounded-xl border border-slate-700/70 bg-slate-900/70 p-1" role="group" aria-label="Escolher estilo visual">
                     <span class="hidden xl:inline px-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Visual</span>
                     <button id="style-option-modern" type="button" data-ui-style-option="modern" aria-pressed="false" class="style-option px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 transition" title="Ativar tema claro">
@@ -85,19 +97,6 @@
                         <i class="fa-solid fa-code-branch mr-1.5" aria-hidden="true"></i> Código de Integração
                     </button>
                 </nav>
-
-                <div class="flex flex-col items-end gap-1">
-                    <label class="upload-label cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-600/20">
-                        <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
-                        <span class="hidden sm:inline">Carregar Excel Atualizado</span>
-                        <span class="sm:hidden">Excel</span>
-                        <input type="file" id="excel-file-input" accept=".xlsx, .xls" class="sr-only" aria-label="Selecionar planilha Excel">
-                    </label>
-                    <div class="flex items-center gap-1.5 text-[10px] text-slate-400" title="Data e hora da última leitura do Excel">
-                        <i class="fa-solid fa-clock-rotate-left text-brand-400" aria-hidden="true"></i>
-                        <span id="last-read-header">Última leitura: aguardando arquivo</span>
-                    </div>
-                </div>
             </div>
         </div>
     </header>
