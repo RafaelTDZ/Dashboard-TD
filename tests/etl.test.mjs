@@ -61,9 +61,13 @@ test('mescla apelidos confirmados de agente (Asia Shipping e Línea Logistics)',
 
 test('mescla apelidos de despachante (MKP Assessoria vira MKP)', () => {
   assert.equal(ETL.DISPATCHER_ALIASES['mkp assessoria'], 'MKP');
+  assert.equal(ETL.DISPATCHER_ALIASES['sea despacho'], 'SEA');
   const records = [{ despachante: 'MKP' }, { despachante: 'MKP Assessoria' }, { despachante: 'mkp assessoria' }];
   ETL.canonicalizeField(records, 'despachante');
   assert.deepEqual(records.map((record) => record.despachante), ['MKP', 'MKP', 'MKP']);
+  const sea = [{ despachante: 'SEA' }, { despachante: 'Sea despacho' }, { despachante: 'SEA DESPACHO' }];
+  ETL.canonicalizeField(sea, 'despachante');
+  assert.deepEqual(sea.map((record) => record.despachante), ['SEA', 'SEA', 'SEA']);
 });
 
 test('normaliza origem/destino/mercadoria para os cards', () => {

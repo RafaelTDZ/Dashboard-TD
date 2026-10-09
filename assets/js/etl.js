@@ -117,7 +117,8 @@
   };
 
   const DISPATCHER_ALIASES = {
-    'mkp assessoria': 'MKP'
+    'mkp assessoria': 'MKP',
+    'sea despacho': 'SEA'
   };
 
   const CANONICAL_ALIASES = {
