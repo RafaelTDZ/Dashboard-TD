@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import vm from 'node:vm';
-
-const require = createRequire(import.meta.url);
-const XLSX = require('../vendor/xlsx.full.min.js');
 
 function loadScript(file, extras = {}) {
   const context = Object.assign({ console }, extras);
@@ -14,6 +10,12 @@ function loadScript(file, extras = {}) {
   vm.runInNewContext(readFileSync(file, 'utf8'), context, { filename: fileURLToPath(file) });
   return context;
 }
+
+// vendor/xlsx.full.min.js é um build de browser (UMD/CJS). Como a raiz do projeto
+// declara "type": "module" no package.json, um require() desse arquivo retornaria um
+// namespace ESM vazio. Carregamos exatamente como o navegador faz: executando o bundle
+// em um contexto com globalThis próprio e lendo o XLSX global que ele publica.
+const XLSX = loadScript(new URL('../vendor/xlsx.full.min.js', import.meta.url)).XLSX;
 
 const etlContext = loadScript(new URL('../assets/js/etl.js', import.meta.url), { XLSX });
 const ETL = etlContext.ETL;
