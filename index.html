@@ -39,6 +39,7 @@
     <script defer src="assets/js/state.js"></script>
     <script defer src="assets/js/supabase.js"></script>
     <script defer src="assets/js/app.js"></script>
+    <script type="module" src="assets/js/analytics.js"></script>
 </head>
 <body data-ui-style="classic" class="bg-darkbg text-slate-100 min-h-screen flex flex-col antialiased">
 
@@ -84,6 +85,11 @@
                         <i class="fa-solid fa-code-branch mr-1.5" aria-hidden="true"></i> Código de Integração
                     </button>
                 </nav>
+
+                <div class="flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-1.5 text-[11px] text-slate-300" title="Data e hora da última leitura do Excel">
+                    <i class="fa-solid fa-clock-rotate-left text-brand-400" aria-hidden="true"></i>
+                    <span id="last-read-header">Última leitura: aguardando arquivo</span>
+                </div>
 
                 <label class="upload-label cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-600/20">
                     <i class="fa-solid fa-file-excel" aria-hidden="true"></i>
