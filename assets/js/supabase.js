@@ -6,13 +6,14 @@
   var TABLE = 'excel_imports';
 
   function request(path, options) {
-    return fetch(SUPABASE_URL + '/rest/v1/' + path, Object.assign({
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: 'Bearer ' + SUPABASE_KEY,
-        'Content-Type': 'application/json'
-      }
-    }, options || {})).then(function (response) {
+    var requestOptions = options || {};
+    requestOptions.headers = Object.assign({
+      apikey: SUPABASE_KEY,
+      Authorization: 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'application/json'
+    }, requestOptions.headers || {});
+
+    return fetch(SUPABASE_URL + '/rest/v1/' + path, requestOptions).then(function (response) {
       if (!response.ok) {
         return response.text().then(function (body) {
           throw new Error('Supabase retornou ' + response.status + (body ? ': ' + body : ''));
