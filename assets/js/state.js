@@ -11,10 +11,11 @@
     regDi: 'ALL',
     mercadoria: 'ALL',
     modal: 'ALL',
-    incoterm: 'ALL'
+    incoterm: 'ALL',
+    despachante: 'ALL'
   };
 
-  const SELECT_FILTERS = ['ano', 'mes', 'analista', 'situacao', 'regDi', 'mercadoria', 'modal', 'incoterm'];
+  const SELECT_FILTERS = ['ano', 'mes', 'analista', 'situacao', 'regDi', 'mercadoria', 'modal', 'incoterm', 'despachante'];
 
   function isObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -22,6 +23,14 @@
 
   function defaultFilters() {
     return Object.assign({}, DEFAULT_FILTERS);
+  }
+
+  function normalizeAnalistaMode(mode) {
+    return mode === 'qtd' ? 'qtd' : 'valor';
+  }
+
+  function normalizeUiStyle(style) {
+    return style === 'modern' ? 'modern' : 'classic';
   }
 
   function normalizeFilters(filters, availableValues) {
@@ -51,6 +60,8 @@
     if (snapshot.meta.commentCount != null && (!Number.isFinite(Number(snapshot.meta.commentCount)) || Number(snapshot.meta.commentCount) < 0)) return false;
     if (snapshot.meta.parserVersion != null && (!Number.isFinite(Number(snapshot.meta.parserVersion)) || Number(snapshot.meta.parserVersion) < 1)) return false;
     if (snapshot.meta.loadedAt != null && Number.isNaN(new Date(snapshot.meta.loadedAt).getTime())) return false;
+    if (snapshot.analistaMode != null && snapshot.analistaMode !== 'valor' && snapshot.analistaMode !== 'qtd') return false;
+    if (snapshot.uiStyle != null && snapshot.uiStyle !== 'classic' && snapshot.uiStyle !== 'modern') return false;
     return true;
   }
 
@@ -58,6 +69,8 @@
     SNAPSHOT_VERSION: SNAPSHOT_VERSION,
     defaultFilters: defaultFilters,
     normalizeFilters: normalizeFilters,
+    normalizeAnalistaMode: normalizeAnalistaMode,
+    normalizeUiStyle: normalizeUiStyle,
     isValidSnapshot: isValidSnapshot
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

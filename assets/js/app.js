@@ -15,9 +15,10 @@
     'banner-text', 'last-update-time', 'last-read-header',
     'kpi-volume', 'kpi-volume-hint', 'kpi-processos', 'kpi-peso', 'kpi-ticket', 'kpi-conclusao', 'kpi-sla', 'kpi-sla-hint',
     'filter-operacao', 'filter-mes', 'filter-analista', 'filter-situacao', 'filter-reg-di',
-    'filter-mercadoria', 'filter-modal', 'filter-incoterm', 'btn-reset-filters',
+    'filter-mercadoria', 'filter-modal', 'filter-incoterm', 'filter-despachante', 'btn-reset-filters',
     'table-search', 'table-body', 'table-count', 'table-head', 'btn-export-csv',
     'page-size', 'page-prev', 'page-next', 'page-info', 'monthly-year',
+    'analistas-title', 'analistas-unit', 'analistas-mode-valor', 'analistas-mode-qtd',
     'excel-file-input', 'modal', 'modal-title', 'modal-body'
   ];
 
@@ -29,6 +30,7 @@
     meta: null,
     isDemo: true,
     uiStyle: 'classic',
+    analistaMode: 'valor',
     filters: global.DashboardState.defaultFilters(),
     search: '',
     sort: { key: 'month', dir: 1 },
@@ -150,6 +152,7 @@
       cacheElements();
       bindEvents();
       applyVisualStyle('classic', false);
+      applyAnalistaModeUI();
       // Garante o estado transitório mesmo se o HTML vier de um cache antigo.
       hideStatusBanner();
     } catch (error) {
@@ -164,7 +167,7 @@
       if (snapshot) {
         state.dataset = snapshot.records.map(prepareRecord);
         if (global.ETL && typeof global.ETL.canonicalizeField === 'function') {
-          ['agente', 'origem', 'destino', 'mercadoria', 'analista'].forEach(function (field) {
+          ['agente', 'origem', 'destino', 'mercadoria', 'analista', 'despachante'].forEach(function (field) {
             global.ETL.canonicalizeField(state.dataset, field);
           });
         } else if (global.ETL && typeof global.ETL.canonicalizeAgents === 'function') {
@@ -183,6 +186,22 @@
         state.isDemo = false;
         if (snapshot.filters) Object.assign(state.filters, snapshot.filters);
         if (typeof snapshot.search === 'string') state.search = snapshot.search;
+        if (snapshot.analistaMode != null) {
+          if (global.DashboardState && typeof global.DashboardState.normalizeAnalistaMode === 'function') {
+            state.analistaMode = global.DashboardState.normalizeAnalistaMode(snapshot.analistaMode);
+          } else {
+            state.analistaMode = snapshot.analistaMode === 'qtd' ? 'qtd' : 'valor';
+          }
+        }
+        if (snapshot.uiStyle != null) {
+          if (global.DashboardState && typeof global.DashboardState.normalizeUiStyle === 'function') {
+            state.uiStyle = global.DashboardState.normalizeUiStyle(snapshot.uiStyle);
+          } else {
+            state.uiStyle = snapshot.uiStyle === 'modern' ? 'modern' : 'classic';
+          }
+          applyVisualStyle(state.uiStyle, false);
+        }
+        applyAnalistaModeUI();
         global.UI.toast('Último arquivo carregado restaurado: ' + snapshot.meta.name, 'info', 'Sessão restaurada');
         if (state.meta.parserVersion !== global.ETL.PARSER_VERSION) {
           global.UI.toast('Os dados salvos foram mantidos. Reimporte o Excel para aplicar as correções do importador.', 'warning', 'Reimportação recomendada');
@@ -214,7 +233,15 @@
     els['tab-btn-integration'].addEventListener('click', function () { switchTab('integration'); });
 
     document.querySelectorAll('[data-ui-style-option]').forEach(function (button) {
-      button.addEventListener('click', function () { applyVisualStyle(button.dataset.uiStyleOption); });
+      button.addEventListener('click', function () {
+        applyVisualStyle(button.dataset.uiStyleOption);
+        schedulePersist();
+        if (typeof button.blur === 'function') button.blur();
+      });
+    });
+
+    document.querySelectorAll('[data-analista-mode]').forEach(function (button) {
+      button.addEventListener('click', function () { setAnalistaMode(button.dataset.analistaMode); });
     });
 
     document.querySelector('.tablist').addEventListener('keydown', function (event) {
@@ -235,7 +262,8 @@
       'filter-reg-di': 'regDi',
       'filter-mercadoria': 'mercadoria',
       'filter-modal': 'modal',
-      'filter-incoterm': 'incoterm'
+      'filter-incoterm': 'incoterm',
+      'filter-despachante': 'despachante'
     };
     Object.keys(selectMap).forEach(function (id) {
       els[id].addEventListener('change', function () {
@@ -331,9 +359,44 @@
       global.Charts.render(state.filtered, {
         monthlyYear: state.filters.ano,
         isDemo: state.isDemo,
-        uiStyle: nextStyle
+        uiStyle: nextStyle,
+        analistaMode: state.analistaMode
       });
     }
+  }
+
+  function applyAnalistaModeUI() {
+    var isCount = state.analistaMode === 'qtd';
+    var title = document.getElementById('analistas-title');
+    if (title) title.textContent = isCount ? 'Quantidade de Processos por Analista' : 'Valor USD Movimentado por Analista';
+    var unit = document.getElementById('analistas-unit');
+    if (unit) unit.textContent = isCount ? 'Nº de processos' : 'Valores em USD';
+    var canvas = document.getElementById('chart-analistas');
+    if (canvas) {
+      canvas.setAttribute('aria-label', isCount
+        ? 'Gráfico de barras da quantidade de processos por analista'
+        : 'Gráfico de barras do valor movimentado por analista');
+    }
+    ['valor', 'qtd'].forEach(function (mode) {
+      var button = document.getElementById('analistas-mode-' + mode);
+      if (!button) return;
+      var active = (mode === 'qtd') === isCount;
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      button.classList.toggle('bg-brand-600', active);
+      button.classList.toggle('text-white', active);
+      button.classList.toggle('shadow', active);
+      button.classList.toggle('text-slate-400', !active);
+      button.classList.toggle('hover:text-white', !active);
+    });
+  }
+
+  function setAnalistaMode(mode) {
+    var next = mode === 'qtd' ? 'qtd' : 'valor';
+    if (state.analistaMode === next) return;
+    state.analistaMode = next;
+    applyAnalistaModeUI();
+    refresh();
+    schedulePersist();
   }
 
   function switchTab(tabName) {
@@ -378,6 +441,7 @@
     fillSelect(els['filter-analista'], state.dataset.map(function (item) { return item.analista; }), 'Todos os Analistas');
     fillSelect(els['filter-mercadoria'], state.dataset.map(function (item) { return item.mercadoria; }), 'Todas as Mercadorias');
     fillSelect(els['filter-incoterm'], state.dataset.map(function (item) { return item.incoterm; }), 'Todos Incoterms');
+    fillSelect(els['filter-despachante'], state.dataset.map(function (item) { return item.despachante; }), 'Todos os Despachantes');
     populateMonthlyYearOptions();
   }
 
@@ -425,7 +489,8 @@
       regDi: Array.from(els['filter-reg-di'].options).map(function (option) { return option.value; }),
       mercadoria: Array.from(els['filter-mercadoria'].options).map(function (option) { return option.value; }),
       modal: Array.from(els['filter-modal'].options).map(function (option) { return option.value; }),
-      incoterm: Array.from(els['filter-incoterm'].options).map(function (option) { return option.value; })
+      incoterm: Array.from(els['filter-incoterm'].options).map(function (option) { return option.value; }),
+      despachante: Array.from(els['filter-despachante'].options).map(function (option) { return option.value; })
     };
     state.filters = global.DashboardState.normalizeFilters(state.filters, availableValues);
     var hasYearOption = availableValues.ano.some(function (value) { return /^\d{4}$/.test(String(value)); });
@@ -443,6 +508,7 @@
     els['filter-mercadoria'].value = state.filters.mercadoria;
     els['filter-modal'].value = state.filters.modal;
     els['filter-incoterm'].value = state.filters.incoterm;
+    els['filter-despachante'].value = state.filters.despachante;
     els['table-search'].value = state.search;
     els['page-size'].value = String(state.pageSize);
   }
@@ -474,8 +540,10 @@
     if (filters.analista !== 'ALL' && item.analista !== filters.analista) return false;
     if (filters.situacao !== 'ALL') {
       var done = global.ETL.isConcluida(item);
+      var cancelled = typeof global.ETL.isCancelada === 'function' ? global.ETL.isCancelada(item) : false;
       if (filters.situacao === 'Concluida' && !done) return false;
-      if (filters.situacao === 'Andamento' && done) return false;
+      if (filters.situacao === 'Cancelada' && !cancelled) return false;
+      if (filters.situacao === 'Andamento' && (done || cancelled)) return false;
     }
     if (filters.regDi !== 'ALL') {
       var registered = global.ETL.isDiRegistered(item);
@@ -488,6 +556,7 @@
       if (filters.modal !== modalCategory) return false;
     }
     if (filters.incoterm !== 'ALL' && item.incoterm !== filters.incoterm) return false;
+    if (filters.despachante !== 'ALL' && item.despachante !== filters.despachante) return false;
     if (state.search && item._search.indexOf(state.search.toLowerCase()) === -1) return false;
     return true;
   }
@@ -536,7 +605,7 @@
     updateBanner();
     updateKPIs(state.filtered);
     if (global.Charts) {
-      try { global.Charts.render(state.filtered, { monthlyYear: state.filters.ano, isDemo: state.isDemo, uiStyle: state.uiStyle }); }
+      try { global.Charts.render(state.filtered, { monthlyYear: state.filters.ano, isDemo: state.isDemo, uiStyle: state.uiStyle, analistaMode: state.analistaMode }); }
       catch (error) {
         console.error('Falha ao atualizar os gráficos.', error);
         global.UI.toast('Os dados foram atualizados, mas um gráfico não pôde ser redesenhado.', 'warning', 'Visualização parcial');
@@ -859,7 +928,7 @@
       if (result.error) throw result.error;
       state.dataset = result.records.map(prepareRecord);
       if (global.ETL && typeof global.ETL.canonicalizeField === 'function') {
-        ['agente', 'origem', 'destino', 'mercadoria', 'analista'].forEach(function (field) {
+        ['agente', 'origem', 'destino', 'mercadoria', 'analista', 'despachante'].forEach(function (field) {
           global.ETL.canonicalizeField(state.dataset, field);
         });
       } else if (global.ETL && typeof global.ETL.canonicalizeAgents === 'function') {
@@ -1032,10 +1101,19 @@
         loadedAt: state.meta.loadedAt.toISOString()
       },
       filters: state.filters,
-      search: state.search
+      search: state.search,
+      analistaMode: state.analistaMode,
+      uiStyle: state.uiStyle
+    };
+    // Supabase guarda só o dataset (records + meta). Filtros, busca e seletor
+    // USD/QTD ficam só no navegador (IndexedDB), nunca no remoto.
+    var remoteSnapshot = {
+      version: snapshot.version,
+      records: snapshot.records,
+      meta: snapshot.meta
     };
     var remoteSave = global.SupabaseStorage && global.SupabaseStorage.saveSnapshot
-      ? global.SupabaseStorage.saveSnapshot(snapshot).catch(function (error) {
+      ? global.SupabaseStorage.saveSnapshot(remoteSnapshot).catch(function (error) {
         console.error('[BI Hub] Falha ao salvar no Supabase.', error);
         return false;
       })
@@ -1065,7 +1143,9 @@
         loadedAt: state.meta.loadedAt.toISOString()
       },
       filters: state.filters,
-      search: state.search
+      search: state.search,
+      analistaMode: state.analistaMode,
+      uiStyle: state.uiStyle
     });
   }
 
@@ -1079,9 +1159,23 @@
 
     return remoteRestore.then(function (remoteSnapshot) {
       if (global.DashboardState.isValidSnapshot(remoteSnapshot)) {
-        // Atualiza o cache local apenas depois de aceitar o Supabase como fonte principal.
-        idbSet(SNAPSHOT_KEY, remoteSnapshot).catch(function () { /* cache opcional */ });
-        return remoteSnapshot;
+        // O remoto traz só o dataset. Preserva filtros/busca/seletor do cache
+        // local para não zerar a UI a cada recarregamento.
+        return idbGet(SNAPSHOT_KEY).then(function (cachedSnapshot) {
+          var merged = remoteSnapshot;
+          if (cachedSnapshot) {
+            if (cachedSnapshot.filters) merged.filters = cachedSnapshot.filters;
+            if (typeof cachedSnapshot.search === 'string') merged.search = cachedSnapshot.search;
+            if (cachedSnapshot.analistaMode != null) merged.analistaMode = cachedSnapshot.analistaMode;
+            if (cachedSnapshot.uiStyle != null) merged.uiStyle = cachedSnapshot.uiStyle;
+          }
+          // Atualiza o cache local apenas depois de aceitar o Supabase como fonte principal.
+          idbSet(SNAPSHOT_KEY, merged).catch(function () { /* cache opcional */ });
+          return merged;
+        }, function () {
+          idbSet(SNAPSHOT_KEY, remoteSnapshot).catch(function () { /* cache opcional */ });
+          return remoteSnapshot;
+        });
       }
       return idbGet(SNAPSHOT_KEY).then(function (cachedSnapshot) {
         return global.DashboardState.isValidSnapshot(cachedSnapshot) ? cachedSnapshot : null;

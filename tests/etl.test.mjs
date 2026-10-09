@@ -59,6 +59,13 @@ test('mescla apelidos confirmados de agente (Asia Shipping e Línea Logistics)',
   assert.equal(records[4].agente, 'N/A');
 });
 
+test('mescla apelidos de despachante (MKP Assessoria vira MKP)', () => {
+  assert.equal(ETL.DISPATCHER_ALIASES['mkp assessoria'], 'MKP');
+  const records = [{ despachante: 'MKP' }, { despachante: 'MKP Assessoria' }, { despachante: 'mkp assessoria' }];
+  ETL.canonicalizeField(records, 'despachante');
+  assert.deepEqual(records.map((record) => record.despachante), ['MKP', 'MKP', 'MKP']);
+});
+
 test('normaliza origem/destino/mercadoria para os cards', () => {
   const origem = [{ origem: 'Ningbo' }, { origem: 'NINGBO' }, { origem: 'Qingdao' }];
   ETL.canonicalizeField(origem, 'origem');
@@ -83,6 +90,10 @@ test('classifica estados concluídos, arquivados e negados', () => {
   assert.equal(ETL.isConcluida({ situacao: 'Não arquivado' }), false);
   assert.equal(ETL.isConcluida({ situacao: 'Aguardando arquivamento' }), false);
   assert.equal(ETL.isConcluida({ situacao: 'Em andamento' }), false);
+  assert.equal(ETL.isCancelada({ situacao: 'Operação cancelada' }), true);
+  assert.equal(ETL.isCancelada({ situacao: 'Cancelado' }), true);
+  assert.equal(ETL.isCancelada({ situacao: 'Operação concluída' }), false);
+  assert.equal(ETL.isCancelada({ situacao: 'Em andamento' }), false);
 });
 
 test('rejeita datas inválidas sem fazer rollover silencioso', () => {
@@ -306,6 +317,7 @@ test('valida snapshots e normaliza filtros restaurados', () => {
     regDi: 'ALL',
     mercadoria: 'ALL',
     modal: 'ALL',
-    incoterm: 'ALL'
+    incoterm: 'ALL',
+    despachante: 'ALL'
   });
 });

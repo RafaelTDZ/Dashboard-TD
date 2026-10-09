@@ -184,6 +184,7 @@ const ETL_STUB = {
   canonicalizeField: () => {},
   canonicalizeAgents: () => {},
   isConcluida: () => false,
+  isCancelada: () => false,
   isDiRegistered: () => false,
   isFaturada: () => false,
   isArquivado: () => false
@@ -213,7 +214,7 @@ function createStateStub() {
     normalizeFilters: (filters) => filters,
     defaultFilters: () => ({
       operacao: '', ano: 'LATEST', mes: 'ALL', analista: 'ALL', situacao: 'ALL',
-      regDi: 'ALL', mercadoria: 'ALL', modal: 'ALL', incoterm: 'ALL'
+      regDi: 'ALL', mercadoria: 'ALL', modal: 'ALL', incoterm: 'ALL', despachante: 'ALL'
     }),
     SNAPSHOT: {}
   };

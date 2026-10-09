@@ -116,6 +116,15 @@
     'linea': 'Línea Logistics'
   };
 
+  const DISPATCHER_ALIASES = {
+    'mkp assessoria': 'MKP'
+  };
+
+  const CANONICAL_ALIASES = {
+    agente: AGENT_ALIASES,
+    despachante: DISPATCHER_ALIASES
+  };
+
   function resolveAgentAlias(value) {
     const key = normalizeAgentKey(value);
     return AGENT_ALIASES[key] || null;
@@ -272,8 +281,9 @@
     const displayFor = function (value) {
       const raw = String(value == null ? '' : value).trim();
       if (!raw) return 'N/A';
-      if (field === 'agente') {
-        const alias = AGENT_ALIASES[normalizeAgentKey(raw)];
+      const aliasMap = CANONICAL_ALIASES[field];
+      if (aliasMap) {
+        const alias = aliasMap[normalizeAgentKey(raw)];
         if (alias) return alias;
       }
       return raw;
@@ -454,6 +464,12 @@
     const status = normalizeHeader(record && record.situacao);
     if (!status || /\bnao\b.*\b(?:conclu\w*|arquiv\w*)\b/.test(status)) return false;
     return /\bconclu\w*/.test(status) || /\barquiv(?:ado|ada|ados|adas)\b/.test(status);
+  }
+
+  function isCancelada(record) {
+    const status = normalizeHeader(record && record.situacao);
+    if (!status) return false;
+    return /\bcancel\w*/.test(status);
   }
 
   function resolveMonth(row) {
@@ -692,7 +708,7 @@
       return record;
     });
     canonicalizeAgents(records);
-    ['origem', 'destino', 'mercadoria', 'analista'].forEach(function (field) {
+    ['origem', 'destino', 'mercadoria', 'analista', 'despachante'].forEach(function (field) {
       canonicalizeField(records, field);
     });
     const currencyCounts = records.reduce(function (counts, record) {
@@ -742,10 +758,12 @@
     resolveSlaDias: resolveSlaDias,
     isDiRegistered: isDiRegistered,
     isConcluida: isConcluida,
+    isCancelada: isCancelada,
     isFaturada: isFaturada,
     isArquivado: isArquivado,
     normalizeAgentKey: normalizeAgentKey,
     AGENT_ALIASES: AGENT_ALIASES,
+    DISPATCHER_ALIASES: DISPATCHER_ALIASES,
     resolveAgentAlias: resolveAgentAlias,
     canonicalizeAgents: canonicalizeAgents,
     canonicalizeField: canonicalizeField,

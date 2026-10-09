@@ -211,7 +211,7 @@ test('card de status é transitório e só aparece após carregar um arquivo', (
   // Somente o upload de arquivo revela o card.
   const revealCallSites = [...app.matchAll(/^\s+showTransientUpdateBanner\(\);/gm)];
   assert.equal(revealCallSites.length, 1);
-  const upload = app.match(/function handleFileUpload\(event\)\s*\{([\s\S]*?)\n  \}\n/)[1];
+  const upload = app.match(/function handleFileUpload\(event\)\s*\{([\s\S]*?)\r?\n  \}\r?\n/)[1];
   assert.match(upload, /showTransientUpdateBanner\(\);/);
 
   // E ele volta a se esconder sozinho, fechando de verdade via hideStatusBanner().

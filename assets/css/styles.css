@@ -89,6 +89,16 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+/* Clique com mouse não deve deixar anel de foco preso (o tema troca a cor do
+   outline e ele parece "piscar"). Teclado continua com o anel via :focus-visible. */
+[data-sort]:focus:not(:focus-visible),
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+select:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+}
+
 [data-sort] {
   cursor: pointer;
   display: inline-flex;
@@ -141,6 +151,59 @@ a:focus-visible {
 
 .style-switcher {
   isolation: isolate;
+}
+
+/* Borda transparente permanente nas abas: só a COR muda entre temas, nunca a
+   largura — senão o transition-all anima 1px→0 e a aba ativa "pisca". */
+.main-tabs button {
+  border: 1px solid transparent;
+}
+
+/* Organização dos filtros (igual nos temas escuro e claro): grade responsiva. */
+body .ui-filter-panel {
+  align-items: flex-start;
+}
+
+.ui-filter-panel > .flex-grow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  width: 100%;
+  max-width: none;
+  align-items: center;
+}
+
+.ui-filter-panel input,
+.ui-filter-panel select {
+  min-width: 0;
+  width: 100%;
+}
+
+#btn-reset-filters {
+  justify-self: end;
+  margin-left: 0;
+}
+
+@media (max-width: 767px) {
+  .ui-filter-panel > .flex-grow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #filter-operacao {
+    grid-column: 1 / -1;
+  }
+
+  #btn-reset-filters {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .ui-filter-panel > .flex-grow {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .style-option {
@@ -202,7 +265,6 @@ body[data-ui-style="modern"] header > div > div:first-child > div:first-child {
 }
 
 body[data-ui-style="modern"] main {
-  padding-top: 2rem;
   color: #09090b;
 }
 
@@ -240,11 +302,11 @@ body[data-ui-style="modern"] .ui-status {
 }
 
 body[data-ui-style="modern"] .ui-status [class~="bg-emerald-400"] {
-  background: #10b981;
+  background: #18181b;
 }
 
 body[data-ui-style="modern"] .ui-status > div:first-child > span {
-  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.15);
+  box-shadow: 0 0 0 4px rgba(24, 24, 27, 0.12);
 }
 
 body[data-ui-style="modern"] [class~="text-slate-200"] {
@@ -269,23 +331,23 @@ body[data-ui-style="modern"] [class~="text-slate-600"] {
 
 body[data-ui-style="modern"] [class~="text-emerald-400"],
 body[data-ui-style="modern"] [class~="text-emerald-400/80"] {
-  color: #059669;
+  color: #18181b;
 }
 
 body[data-ui-style="modern"] [class~="text-brand-400"] {
-  color: #52525b;
+  color: #18181b;
 }
 
 body[data-ui-style="modern"] [class~="text-cyan-400"] {
-  color: #0891b2;
+  color: #52525b;
 }
 
 body[data-ui-style="modern"] [class~="text-amber-400"] {
-  color: #d97706;
+  color: #52525b;
 }
 
 body[data-ui-style="modern"] [class~="text-purple-400"] {
-  color: #7c3aed;
+  color: #52525b;
 }
 
 body[data-ui-style="modern"] [class~="text-red-400"] {
@@ -293,7 +355,7 @@ body[data-ui-style="modern"] [class~="text-red-400"] {
 }
 
 body[data-ui-style="modern"] #monthly-insight[class~="text-emerald-300"] {
-  color: #059669;
+  color: #18181b;
 }
 
 body[data-ui-style="modern"] .ui-kpi {
@@ -385,6 +447,36 @@ body[data-ui-style="modern"] .main-tabs button[aria-selected="true"] {
 }
 
 body[data-ui-style="modern"] .main-tabs button:not([aria-selected="true"]):hover {
+  background: rgba(24, 24, 27, 0.05);
+  color: #18181b;
+}
+
+body[data-ui-style="modern"] [class~="bg-slate-900/70"] {
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+  color: #3f3f46;
+}
+
+body[data-ui-style="modern"] [class~="border-slate-700/50"] {
+  border-color: #e4e4e7;
+}
+
+body[data-ui-style="modern"] .ui-table-panel [class~="divide-slate-700/50"] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e4e4e7;
+}
+
+body[data-ui-style="modern"] [data-analista-mode][aria-pressed="true"] {
+  background: #18181b;
+  border-color: #18181b;
+  box-shadow: 0 1px 2px rgba(24, 24, 27, 0.2);
+  color: #ffffff;
+}
+
+body[data-ui-style="modern"] [data-analista-mode]:not([aria-pressed="true"]) {
+  color: #71717a;
+}
+
+body[data-ui-style="modern"] [data-analista-mode]:not([aria-pressed="true"]):hover {
   background: rgba(24, 24, 27, 0.05);
   color: #18181b;
 }
@@ -510,6 +602,7 @@ body[data-ui-style="modern"] .ui-table-panel {
 
 body[data-ui-style="modern"] .ui-table-panel thead {
   background: #fafafa;
+  border-color: #e4e4e7;
   color: #52525b;
 }
 
@@ -542,15 +635,15 @@ body[data-ui-style="modern"] .ui-table-panel [class~="text-slate-200"] {
 }
 
 body[data-ui-style="modern"] .ui-table-panel [class~="bg-blue-950"] {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #1d4ed8;
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+  color: #3f3f46;
 }
 
 body[data-ui-style="modern"] .ui-table-panel [class~="bg-purple-950"] {
-  background: #f5f3ff;
-  border-color: #ddd6fe;
-  color: #6d28d9;
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+  color: #3f3f46;
 }
 
 body[data-ui-style="modern"] .ui-table-panel [class~="bg-slate-800"] {
@@ -560,9 +653,9 @@ body[data-ui-style="modern"] .ui-table-panel [class~="bg-slate-800"] {
 }
 
 body[data-ui-style="modern"] .ui-table-panel [class~="bg-cyan-950"] {
-  background: #ecfeff;
-  border-color: #a5f3fc;
-  color: #0e7490;
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+  color: #3f3f46;
 }
 
 body[data-ui-style="modern"] .ui-table-panel [class~="bg-slate-700"] {
@@ -572,21 +665,21 @@ body[data-ui-style="modern"] .ui-table-panel [class~="bg-slate-700"] {
 }
 
 body[data-ui-style="modern"] .ui-table-panel [class~="bg-indigo-950"] {
-  background: #eef2ff;
-  border-color: #c7d2fe;
-  color: #4338ca;
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+  color: #3f3f46;
 }
 
 body[data-ui-style="modern"] .ui-table-panel [class~="bg-amber-950"] {
-  background: #fffbeb;
-  border-color: #fde68a;
-  color: #92400e;
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+  color: #3f3f46;
 }
 
 body[data-ui-style="modern"] .ui-table-panel [class~="bg-emerald-950"] {
-  background: #ecfdf5;
-  border-color: #a7f3d0;
-  color: #047857;
+  background: #18181b;
+  border-color: #18181b;
+  color: #ffffff;
 }
 
 body[data-ui-style="modern"] #btn-export-csv,
@@ -709,14 +802,6 @@ body[data-ui-style="modern"] select:focus-visible,
 body[data-ui-style="modern"] a:focus-visible {
   outline: 2px solid #18181b;
   outline-offset: 2px;
-}
-
-body[data-ui-style="modern"] [class~="text-[10px]"] {
-  font-size: 0.6875rem;
-}
-
-body[data-ui-style="modern"] [class~="text-[11px]"] {
-  font-size: 0.75rem;
 }
 
 @media (max-width: 767px) {
