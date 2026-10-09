@@ -966,6 +966,37 @@
 
   function persistState() {
     if (state.isDemo) return Promise.resolve(false);
+    var snapshot = {
+      version: global.DashboardState.SNAPSHOT_VERSION,
+      records: state.dataset,
+      meta: {
+        name: state.meta.name,
+        sheetName: state.meta.sheetName,
+        headerRow: state.meta.headerRow,
+        rowCount: state.meta.rowCount,
+        ignoredRows: state.meta.ignoredRows || 0,
+        commentCount: state.meta.commentCount || 0,
+        parserVersion: state.meta.parserVersion || global.ETL.PARSER_VERSION,
+        loadedAt: state.meta.loadedAt.toISOString()
+      },
+      filters: state.filters,
+      search: state.search
+    };
+    return Promise.all([
+      idbSet(SNAPSHOT_KEY, snapshot),
+      global.SupabaseStorage && global.SupabaseStorage.saveSnapshot
+        ? global.SupabaseStorage.saveSnapshot(snapshot).catch(function (error) {
+          console.error('[BI Hub] Falha ao salvar no Supabase.', error);
+          return false;
+        })
+        : Promise.resolve(false)
+    ]).then(function (results) {
+      return results[0];
+    });
+  }
+
+  function persistStateLegacy() {
+    if (state.isDemo) return Promise.resolve(false);
     return idbSet(SNAPSHOT_KEY, {
       version: global.DashboardState.SNAPSHOT_VERSION,
       records: state.dataset,
@@ -986,7 +1017,14 @@
 
   function restoreState() {
     return idbGet(SNAPSHOT_KEY).then(function (snapshot) {
-      return global.DashboardState.isValidSnapshot(snapshot) ? snapshot : null;
+      if (global.DashboardState.isValidSnapshot(snapshot)) return snapshot;
+      if (!global.SupabaseStorage || !global.SupabaseStorage.getLatestSnapshot) return null;
+      return global.SupabaseStorage.getLatestSnapshot().then(function (remoteSnapshot) {
+        return global.DashboardState.isValidSnapshot(remoteSnapshot) ? remoteSnapshot : null;
+      }).catch(function (error) {
+        console.error('[BI Hub] Falha ao restaurar do Supabase.', error);
+        return null;
+      });
     }).catch(function () { return null; });
   }
 
