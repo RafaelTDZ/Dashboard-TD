@@ -12,7 +12,7 @@
     'tab-btn-dashboard', 'tab-btn-data', 'tab-btn-integration',
     'tab-dashboard', 'tab-data', 'tab-integration',
     'style-switcher', 'style-option-modern', 'style-option-classic',
-    'banner-text', 'last-update-time',
+    'banner-text', 'last-update-time', 'last-read-header',
     'kpi-volume', 'kpi-volume-hint', 'kpi-processos', 'kpi-peso', 'kpi-ticket', 'kpi-conclusao', 'kpi-sla', 'kpi-sla-hint',
     'filter-operacao', 'filter-mes', 'filter-analista', 'filter-situacao', 'filter-reg-di',
     'filter-mercadoria', 'filter-modal', 'filter-incoterm', 'btn-reset-filters',
@@ -546,6 +546,10 @@
 
   function updateBanner() {
     var meta = state.meta || {};
+    var lastReadText = state.isDemo || !state.dataset.length
+      ? 'Última leitura: aguardando arquivo'
+      : 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
+    els['last-read-header'].innerText = lastReadText;
     if (state.isDemo || !state.dataset.length) {
       els['banner-text'].innerHTML = 'Nenhum arquivo carregado. Clique em <strong>Carregar Excel Atualizado</strong> para selecionar a planilha <strong>!Importações.xlsx</strong>.';
       els['last-update-time'].innerText = 'Aguardando arquivo';
@@ -558,6 +562,20 @@
       ' &bull; ' + global.UI.formatNumber(meta.rowCount || state.dataset.length) + ' processos' +
       (meta.headerRow ? ' &bull; Cabeçalho na linha ' + meta.headerRow : '') + ignoredText + commentsText;
     els['last-update-time'].innerText = 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
+  }
+
+  function showTransientUpdateBanner() {
+    var banner = document.getElementById('status-banner');
+    if (!banner) return;
+    if (banner._hideTimer) clearTimeout(banner._hideTimer);
+    banner.hidden = false;
+    banner.classList.remove('opacity-0', 'pointer-events-none');
+    banner._hideTimer = setTimeout(function () {
+      banner.classList.add('opacity-0', 'pointer-events-none');
+      banner._hideTimer = setTimeout(function () {
+        banner.hidden = true;
+      }, 250);
+    }, 8000);
   }
 
   function updateKPIs(data) {
@@ -830,6 +848,7 @@
       resetFilters({ silent: true, skipRefresh: true });
       schedulePersist();
       refresh();
+      showTransientUpdateBanner();
       var ignoredMessage = result.ignoredRows
         ? ' ' + global.UI.formatNumber(result.ignoredRows) + ' linha(s) sem campos operacionais foram ignoradas.'
         : '';
@@ -982,16 +1001,18 @@
       filters: state.filters,
       search: state.search
     };
-    return Promise.all([
-      idbSet(SNAPSHOT_KEY, snapshot),
-      global.SupabaseStorage && global.SupabaseStorage.saveSnapshot
-        ? global.SupabaseStorage.saveSnapshot(snapshot).catch(function (error) {
-          console.error('[BI Hub] Falha ao salvar no Supabase.', error);
-          return false;
-        })
-        : Promise.resolve(false)
-    ]).then(function (results) {
-      return results[0];
+    var remoteSave = global.SupabaseStorage && global.SupabaseStorage.saveSnapshot
+      ? global.SupabaseStorage.saveSnapshot(snapshot).catch(function (error) {
+        console.error('[BI Hub] Falha ao salvar no Supabase.', error);
+        return false;
+      })
+      : Promise.resolve(false);
+
+    return remoteSave.then(function (savedRemotely) {
+      // O IndexedDB permanece apenas como cache offline; o Supabase é a fonte principal.
+      return idbSet(SNAPSHOT_KEY, snapshot).then(function () {
+        return savedRemotely;
+      });
     });
   }
 
@@ -1016,16 +1037,27 @@
   }
 
   function restoreState() {
-    return idbGet(SNAPSHOT_KEY).then(function (snapshot) {
-      if (global.DashboardState.isValidSnapshot(snapshot)) return snapshot;
-      if (!global.SupabaseStorage || !global.SupabaseStorage.getLatestSnapshot) return null;
-      return global.SupabaseStorage.getLatestSnapshot().then(function (remoteSnapshot) {
-        return global.DashboardState.isValidSnapshot(remoteSnapshot) ? remoteSnapshot : null;
-      }).catch(function (error) {
+    var remoteRestore = global.SupabaseStorage && global.SupabaseStorage.getLatestSnapshot
+      ? global.SupabaseStorage.getLatestSnapshot().catch(function (error) {
         console.error('[BI Hub] Falha ao restaurar do Supabase.', error);
         return null;
+      })
+      : Promise.resolve(null);
+
+    return remoteRestore.then(function (remoteSnapshot) {
+      if (global.DashboardState.isValidSnapshot(remoteSnapshot)) {
+        // Atualiza o cache local apenas depois de aceitar o Supabase como fonte principal.
+        idbSet(SNAPSHOT_KEY, remoteSnapshot).catch(function () { /* cache opcional */ });
+        return remoteSnapshot;
+      }
+      return idbGet(SNAPSHOT_KEY).then(function (cachedSnapshot) {
+        return global.DashboardState.isValidSnapshot(cachedSnapshot) ? cachedSnapshot : null;
       });
-    }).catch(function () { return null; });
+    }).catch(function () {
+      return idbGet(SNAPSHOT_KEY).then(function (cachedSnapshot) {
+        return global.DashboardState.isValidSnapshot(cachedSnapshot) ? cachedSnapshot : null;
+      });
+    });
   }
 
   document.addEventListener('DOMContentLoaded', init);
