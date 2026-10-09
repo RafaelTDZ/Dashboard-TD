@@ -12,7 +12,7 @@
     'tab-btn-dashboard', 'tab-btn-data', 'tab-btn-integration',
     'tab-dashboard', 'tab-data', 'tab-integration',
     'style-switcher', 'style-option-modern', 'style-option-classic',
-    'banner-text', 'last-update-time',
+    'banner-text', 'last-update-time', 'last-read-header',
     'kpi-volume', 'kpi-volume-hint', 'kpi-processos', 'kpi-peso', 'kpi-ticket', 'kpi-conclusao', 'kpi-sla', 'kpi-sla-hint',
     'filter-operacao', 'filter-mes', 'filter-analista', 'filter-situacao', 'filter-reg-di',
     'filter-mercadoria', 'filter-modal', 'filter-incoterm', 'btn-reset-filters',
@@ -546,6 +546,10 @@
 
   function updateBanner() {
     var meta = state.meta || {};
+    var lastReadText = state.isDemo || !state.dataset.length
+      ? 'Última leitura: aguardando arquivo'
+      : 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
+    els['last-read-header'].innerText = lastReadText;
     if (state.isDemo || !state.dataset.length) {
       els['banner-text'].innerHTML = 'Nenhum arquivo carregado. Clique em <strong>Carregar Excel Atualizado</strong> para selecionar a planilha <strong>!Importações.xlsx</strong>.';
       els['last-update-time'].innerText = 'Aguardando arquivo';
@@ -558,6 +562,20 @@
       ' &bull; ' + global.UI.formatNumber(meta.rowCount || state.dataset.length) + ' processos' +
       (meta.headerRow ? ' &bull; Cabeçalho na linha ' + meta.headerRow : '') + ignoredText + commentsText;
     els['last-update-time'].innerText = 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
+  }
+
+  function showTransientUpdateBanner() {
+    var banner = document.getElementById('status-banner');
+    if (!banner) return;
+    if (banner._hideTimer) clearTimeout(banner._hideTimer);
+    banner.hidden = false;
+    banner.classList.remove('opacity-0', 'pointer-events-none');
+    banner._hideTimer = setTimeout(function () {
+      banner.classList.add('opacity-0', 'pointer-events-none');
+      banner._hideTimer = setTimeout(function () {
+        banner.hidden = true;
+      }, 250);
+    }, 8000);
   }
 
   function updateKPIs(data) {
@@ -830,6 +848,7 @@
       resetFilters({ silent: true, skipRefresh: true });
       schedulePersist();
       refresh();
+      showTransientUpdateBanner();
       var ignoredMessage = result.ignoredRows
         ? ' ' + global.UI.formatNumber(result.ignoredRows) + ' linha(s) sem campos operacionais foram ignoradas.'
         : '';
