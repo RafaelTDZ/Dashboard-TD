@@ -192,3 +192,39 @@ test('seletor de estilo permite alternar entre o visual novo e o antigo', () => 
   assert.match(charts, /global\.Charts = \{ init: init, render: render, setStyle: setStyle \}/);
   assert.doesNotMatch(app, /localStorage|sessionStorage/);
 });
+test('card de status é transitório e só aparece após carregar um arquivo', () => {
+  const styles = readFileSync(join(root, 'assets', 'css', 'styles.css'), 'utf8');
+  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+
+  // Começa escondido: o card não pode ficar persistente antes de carregar o Excel.
+  assert.match(html, /id="status-banner"[^>]*\shidden[\s>]/);
+
+  // A classe `flex` do Tailwind sobrescrevia o `display: none` do atributo `hidden`,
+  // então o card continuava visível mesmo depois do timer de fechamento.
+  assert.match(styles, /#status-banner\[hidden\]\s*\{\s*display:\s*none !important;/);
+  assert.match(styles, /#status-banner\.is-fading-out\s*\{[^}]*opacity: 0;/);
+
+  // refresh()/restoreState() atualizam o texto do card, mas nunca a visibilidade.
+  const updateBanner = app.match(/function updateBanner\(\)\s*\{([\s\S]*?)\n  \}/)[1];
+  assert.doesNotMatch(updateBanner, /hidden|classList/);
+
+  // Somente o upload de arquivo revela o card.
+  const revealCallSites = [...app.matchAll(/^\s+showTransientUpdateBanner\(\);/gm)];
+  assert.equal(revealCallSites.length, 1);
+  const upload = app.match(/function handleFileUpload\(event\)\s*\{([\s\S]*?)\n  \}\n/)[1];
+  assert.match(upload, /showTransientUpdateBanner\(\);/);
+
+  // E ele volta a se esconder sozinho, fechando de verdade via hideStatusBanner().
+  assert.match(app, /var STATUS_BANNER_VISIBLE_MS = \d+;/);
+  const definition = app.match(/function showTransientUpdateBanner\(\)\s*\{([\s\S]*?)\n  \}/)[1];
+  assert.match(definition, /setTimeout/);
+  assert.match(definition, /hideStatusBanner\(\)/);
+  const hide = app.match(/function hideStatusBanner\(\)\s*\{([\s\S]*?)\n  \}/)[1];
+  assert.match(hide, /clearStatusBannerTimers\(banner\)/);
+  assert.match(hide, /banner\.hidden = true/);
+
+  // Falha fatal de init mostra o card sem destruir os filhos usados por updateBanner().
+  assert.match(app, /function showStatusBannerError\(message\)/);
+  assert.doesNotMatch(app, /banner\.textContent = error\.message/);
+});
+

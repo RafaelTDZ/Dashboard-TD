@@ -46,6 +46,23 @@ body {
   display: none;
 }
 
+/* O card de status é transitório: fica escondido por padrão, aparece depois do
+   carregamento de um arquivo e volta a sumir sozinho. O `!important` é necessário
+   porque a classe `flex` do Tailwind sobrescreve o `display: none` do atributo
+   `hidden`, que era o motivo do card ficar persistente na tela. */
+#status-banner {
+  transition: opacity 0.3s ease;
+}
+
+#status-banner[hidden] {
+  display: none !important;
+}
+
+#status-banner.is-fading-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .toast-card {
   opacity: 0;
   transform: translateY(8px);

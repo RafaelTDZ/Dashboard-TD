@@ -150,10 +150,11 @@
       cacheElements();
       bindEvents();
       applyVisualStyle('classic', false);
+      // Garante o estado transitório mesmo se o HTML vier de um cache antigo.
+      hideStatusBanner();
     } catch (error) {
       console.error('[BI Hub] Falha ao vincular a interface.', error && error.message ? error.message : error);
-      const banner = document.getElementById('status-banner');
-      if (banner) banner.textContent = error.message;
+      showStatusBannerError(error && error.message ? error.message : 'Falha ao vincular a interface.');
       return;
     }
     var chartsReady = false;
@@ -564,18 +565,50 @@
     els['last-update-time'].innerText = 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
   }
 
+  var STATUS_BANNER_VISIBLE_MS = 8000;
+  var STATUS_BANNER_FADE_MS = 300;
+
+  function clearStatusBannerTimers(banner) {
+    if (banner._hideTimer) { clearTimeout(banner._hideTimer); banner._hideTimer = null; }
+    if (banner._fadeTimer) { clearTimeout(banner._fadeTimer); banner._fadeTimer = null; }
+  }
+
+  // O card de status é transitório: nunca é revelado por refresh(), restoreState()
+  // ou mudança de filtro. Só o carregamento de um arquivo chama showTransientUpdateBanner().
+  function hideStatusBanner() {
+    var banner = document.getElementById('status-banner');
+    if (!banner) return;
+    clearStatusBannerTimers(banner);
+    banner.classList.remove('is-fading-out');
+    banner.hidden = true;
+  }
+
   function showTransientUpdateBanner() {
     var banner = document.getElementById('status-banner');
     if (!banner) return;
-    if (banner._hideTimer) clearTimeout(banner._hideTimer);
+    clearStatusBannerTimers(banner);
     banner.hidden = false;
-    banner.classList.remove('opacity-0', 'pointer-events-none');
+    banner.classList.remove('is-fading-out');
     banner._hideTimer = setTimeout(function () {
-      banner.classList.add('opacity-0', 'pointer-events-none');
-      banner._hideTimer = setTimeout(function () {
-        banner.hidden = true;
-      }, 250);
-    }, 8000);
+      banner._hideTimer = null;
+      banner.classList.add('is-fading-out');
+      banner._fadeTimer = setTimeout(function () {
+        banner._fadeTimer = null;
+        hideStatusBanner();
+      }, STATUS_BANNER_FADE_MS);
+    }, STATUS_BANNER_VISIBLE_MS);
+  }
+
+  // Falhas fatais de inicialização precisam ficar visíveis (sem timer), mas sem
+  // destruir os filhos do card usados por updateBanner().
+  function showStatusBannerError(message) {
+    var banner = document.getElementById('status-banner');
+    if (!banner) return;
+    clearStatusBannerTimers(banner);
+    banner.classList.remove('is-fading-out');
+    var text = banner.querySelector('#banner-text');
+    if (text) text.textContent = message;
+    banner.hidden = false;
   }
 
   function updateKPIs(data) {
