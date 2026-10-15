@@ -328,4 +328,11 @@ test('valida snapshots e normaliza filtros restaurados', () => {
   // Snapshots antigos guardavam 'LATEST'; a normalização converte para 'ALL'.
   const legacy = DashboardState.normalizeFilters({ ano: 'LATEST' }, { ano: ['ALL', '2025'] });
   assert.equal(legacy.ano, 'ALL');
+
+  // Sem filtros salvos, o padrão do ano é o corrente; se ele não existir nos
+  // dados carregados, a normalização cai para "Todos os anos".
+  const anoCorrente = String(new Date().getFullYear());
+  assert.equal(DashboardState.normalizeFilters({}).ano, anoCorrente);
+  assert.equal(DashboardState.normalizeFilters({}, { ano: ['ALL', anoCorrente] }).ano, anoCorrente);
+  assert.equal(DashboardState.normalizeFilters({}, { ano: ['ALL', '1900'] }).ano, 'ALL');
 });

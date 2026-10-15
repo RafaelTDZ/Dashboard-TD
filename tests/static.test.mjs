@@ -111,16 +111,18 @@ test('configuração inline e estrutura de acessibilidade permanecem válidas', 
   assert.match(charts, /countBy\(data, 'operacaoSigla'\)/);
 });
 
-test('filtro de ano mostra todos os anos por padrão e não oculta registros sem ETA/ETS', () => {
+test('filtro de ano usa o ano corrente como padrão e não oculta registros sem ETA/ETS', () => {
   const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   const html = readFileSync(join(root, 'index.html'), 'utf8');
   const state = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
   assert.match(app, /selectedYear != null && getMonthlyReferenceYear/);
   assert.doesNotMatch(app, /if \(!state\.isDemo\) return false/);
-  // "Ano mais recente" (LATEST) foi removido: o padrão é exibir todos os anos.
+  // "Ano mais recente" (LATEST) foi removido: o padrão do filtro é o ano corrente.
   assert.doesNotMatch(app, /'LATEST'/);
   assert.doesNotMatch(html, /value="LATEST"/);
-  assert.match(state, /ano: 'ALL'/);
+  assert.match(state, /ano: String\(new Date\(\)\.getFullYear\(\)\)/);
+  // Se o ano corrente não existir nos dados, o filtro cai para "Todos os anos".
+  assert.match(app, /values\.indexOf\(String\(current\)\) > -1 \? String\(current\) : 'ALL'/);
 });
 
 test('filtros dimensionam pelo conteúdo (sem largura fixa que corta texto)', () => {

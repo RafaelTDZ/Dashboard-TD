@@ -2,9 +2,12 @@
   'use strict';
 
   const SNAPSHOT_VERSION = 1;
+  // Padrão do filtro de ano: o ano corrente. Se esse ano não existir nos dados
+  // carregados (ou não houver dataset), a normalização com as opções do select
+  // cai automaticamente para "Todos os anos" (ALL).
   const DEFAULT_FILTERS = {
     operacao: '',
-    ano: 'ALL',
+    ano: String(new Date().getFullYear()),
     mes: 'ALL',
     analista: 'ALL',
     situacao: 'ALL',
