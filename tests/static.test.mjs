@@ -123,6 +123,16 @@ test('filtro de ano mostra todos os anos por padrão e não oculta registros sem
   assert.match(state, /ano: 'ALL'/);
 });
 
+test('filtros dimensionam pelo conteúdo (sem largura fixa que corta texto)', () => {
+  const styles = readFileSync(join(root, 'assets', 'css', 'styles.css'), 'utf8');
+  // Os controles fluem em flex e cada um acompanha o próprio conteúdo.
+  assert.match(styles, /\.ui-filter-panel > \.flex-grow \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
+  // Chrome/Edge dimensionam o select pela opção selecionada e o input pelo texto.
+  assert.match(styles, /field-sizing: content/);
+  // Nenhuma regra volta a esticar os filtros para uma coluna de largura fixa.
+  assert.doesNotMatch(styles, /\.ui-filter-panel (input|select)[^{]*\{[^}]*width: 100%/);
+});
+
 test('tooltips exibem o nome da categoria uma única vez e só sob o cursor', () => {
   const charts = readFileSync(join(root, 'assets', 'js', 'charts.js'), 'utf8');
   assert.doesNotMatch(charts, /return ' ' \+ ctx\.label \+ ':'/);
