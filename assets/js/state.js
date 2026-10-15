@@ -4,7 +4,7 @@
   const SNAPSHOT_VERSION = 1;
   const DEFAULT_FILTERS = {
     operacao: '',
-    ano: 'LATEST',
+    ano: 'ALL',
     mes: 'ALL',
     analista: 'ALL',
     situacao: 'ALL',

@@ -617,7 +617,7 @@
       isAnalistaCount ? global.UI.formatNumber : global.UI.formatUSDFull
     ));
 
-    const requestedYear = options && options.monthlyYear ? String(options.monthlyYear) : 'LATEST';
+    const requestedYear = options && options.monthlyYear ? String(options.monthlyYear) : 'ALL';
     const scheduleRows = data.filter(function (item) {
       const reference = item.monthlyReference;
       return reference && (reference.source === 'ETA' || reference.source === 'ETS') &&

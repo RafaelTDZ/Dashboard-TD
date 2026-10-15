@@ -310,7 +310,7 @@ test('valida snapshots e normaliza filtros restaurados', () => {
 
   const filters = DashboardState.normalizeFilters(
     { ano: '2099', mes: '99', analista: 'Ana', situacao: 'Concluida', operacao: 42 },
-    { ano: ['LATEST', 'ALL', '2025'], mes: ['ALL', '3'], analista: ['ALL', 'Ana'], situacao: ['ALL', 'Concluida', 'Andamento'] }
+    { ano: ['ALL', '2025'], mes: ['ALL', '3'], analista: ['ALL', 'Ana'], situacao: ['ALL', 'Concluida', 'Andamento'] }
   );
   assert.deepEqual(JSON.parse(JSON.stringify(filters)), {
     operacao: '',
@@ -324,4 +324,8 @@ test('valida snapshots e normaliza filtros restaurados', () => {
     incoterm: 'ALL',
     despachante: 'ALL'
   });
+
+  // Snapshots antigos guardavam 'LATEST'; a normalização converte para 'ALL'.
+  const legacy = DashboardState.normalizeFilters({ ano: 'LATEST' }, { ano: ['ALL', '2025'] });
+  assert.equal(legacy.ano, 'ALL');
 });

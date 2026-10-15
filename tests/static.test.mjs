@@ -111,10 +111,16 @@ test('configuração inline e estrutura de acessibilidade permanecem válidas', 
   assert.match(charts, /countBy\(data, 'operacaoSigla'\)/);
 });
 
-test('filtro de ano não oculta registros sem ETA/ETS quando não há anos datados', () => {
+test('filtro de ano mostra todos os anos por padrão e não oculta registros sem ETA/ETS', () => {
   const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+  const html = readFileSync(join(root, 'index.html'), 'utf8');
+  const state = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
   assert.match(app, /selectedYear != null && getMonthlyReferenceYear/);
   assert.doesNotMatch(app, /if \(!state\.isDemo\) return false/);
+  // "Ano mais recente" (LATEST) foi removido: o padrão é exibir todos os anos.
+  assert.doesNotMatch(app, /'LATEST'/);
+  assert.doesNotMatch(html, /value="LATEST"/);
+  assert.match(state, /ano: 'ALL'/);
 });
 
 test('tooltips exibem o nome da categoria uma única vez e só sob o cursor', () => {

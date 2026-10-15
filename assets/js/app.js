@@ -469,14 +469,14 @@
 
   function populateMonthlyYearOptions() {
     var years = getAvailableMonthlyYears();
-    var current = state.filters.ano || 'LATEST';
-    var html = '<option value="LATEST">Ano mais recente</option><option value="ALL">Todos os anos</option>';
+    var current = state.filters.ano || 'ALL';
+    var html = '<option value="ALL">Todos os anos</option>';
     years.forEach(function (year) {
       html += '<option value="' + year + '">' + year + '</option>';
     });
     els['monthly-year'].innerHTML = html;
-    var values = ['LATEST', 'ALL'].concat(years.map(String));
-    state.filters.ano = values.indexOf(String(current)) > -1 ? String(current) : 'LATEST';
+    var values = ['ALL'].concat(years.map(String));
+    state.filters.ano = values.indexOf(String(current)) > -1 ? String(current) : 'ALL';
     els['monthly-year'].value = state.filters.ano;
   }
 
@@ -493,8 +493,6 @@
       despachante: Array.from(els['filter-despachante'].options).map(function (option) { return option.value; })
     };
     state.filters = global.DashboardState.normalizeFilters(state.filters, availableValues);
-    var hasYearOption = availableValues.ano.some(function (value) { return /^\d{4}$/.test(String(value)); });
-    if (!hasYearOption && state.filters.ano === 'LATEST') state.filters.ano = 'ALL';
   }
 
   function applyFilterStateToInputs() {
@@ -525,9 +523,8 @@
   }
 
   function getSelectedYear() {
-    var selected = String(state.filters.ano || 'LATEST');
+    var selected = String(state.filters.ano || 'ALL');
     if (selected === 'ALL') return null;
-    if (selected === 'LATEST') return getAvailableMonthlyYears()[0] || null;
     var year = Number(selected);
     return Number.isInteger(year) && year >= 1900 && year <= 2100 ? year : null;
   }
@@ -948,7 +945,7 @@
       state.page = 1;
       populateFilterOptions();
       resetFilters({ silent: true, skipRefresh: true });
-      schedulePersist();
+      schedulePersist({ remote: true });
       refresh();
       showTransientUpdateBanner();
       var ignoredMessage = result.ignoredRows
@@ -1063,17 +1060,22 @@
     });
   }
 
-  function schedulePersist() {
+  function schedulePersist(options) {
+    var settings = options || {};
+    var remote = settings.remote === true;
     clearTimeout(persistTimer);
     persistTimer = setTimeout(function () {
-      persistState().then(function (saved) {
+      var task = remote ? persistState() : persistLocal();
+      task.then(function (saved) {
         if (saved) {
           persistenceWarningShown = false;
           return;
         }
         if (!state.isDemo && !persistenceWarningShown) {
           persistenceWarningShown = true;
-          global.UI.toast('O dataset atual não pôde ser salvo nesta sessão.', 'warning', 'Persistência indisponível');
+          global.UI.toast(remote
+            ? 'O dataset não pôde ser enviado ao servidor. Ele ficou salvo apenas neste navegador.'
+            : 'O dataset atual não pôde ser salvo neste navegador.', 'warning', 'Persistência indisponível');
         }
       }).catch(function (error) {
         console.error('Falha ao persistir o dataset.', error);
@@ -1085,9 +1087,9 @@
     }, 600);
   }
 
-  function persistState() {
-    if (state.isDemo) return Promise.resolve(false);
-    var snapshot = {
+  function buildSnapshot() {
+    if (state.isDemo) return null;
+    return {
       version: global.DashboardState.SNAPSHOT_VERSION,
       records: state.dataset,
       meta: {
@@ -1105,8 +1107,23 @@
       analistaMode: state.analistaMode,
       uiStyle: state.uiStyle
     };
-    // Supabase guarda só o dataset (records + meta). Filtros, busca e seletor
-    // USD/QTD ficam só no navegador (IndexedDB), nunca no remoto.
+  }
+
+  // Mudanças de visualização (filtros, busca, estilo, USD/QTD) salvam somente no
+  // IndexedDB. Reenviar o dataset ao Supabase a cada interação deixava uma aba
+  // antiga sobrescrever o último arquivo importado com dados velhos.
+  function persistLocal() {
+    var snapshot = buildSnapshot();
+    if (!snapshot) return Promise.resolve(false);
+    return idbSet(SNAPSHOT_KEY, snapshot);
+  }
+
+  // Chamado apenas ao importar um arquivo: o Supabase é a fonte compartilhada e
+  // guarda só o dataset (records + meta). Filtros, busca e seletor USD/QTD ficam
+  // só no navegador (IndexedDB), nunca no remoto.
+  function persistState() {
+    var snapshot = buildSnapshot();
+    if (!snapshot) return Promise.resolve(false);
     var remoteSnapshot = {
       version: snapshot.version,
       records: snapshot.records,
@@ -1127,28 +1144,6 @@
     });
   }
 
-  function persistStateLegacy() {
-    if (state.isDemo) return Promise.resolve(false);
-    return idbSet(SNAPSHOT_KEY, {
-      version: global.DashboardState.SNAPSHOT_VERSION,
-      records: state.dataset,
-      meta: {
-        name: state.meta.name,
-        sheetName: state.meta.sheetName,
-        headerRow: state.meta.headerRow,
-        rowCount: state.meta.rowCount,
-        ignoredRows: state.meta.ignoredRows || 0,
-        commentCount: state.meta.commentCount || 0,
-        parserVersion: state.meta.parserVersion || global.ETL.PARSER_VERSION,
-        loadedAt: state.meta.loadedAt.toISOString()
-      },
-      filters: state.filters,
-      search: state.search,
-      analistaMode: state.analistaMode,
-      uiStyle: state.uiStyle
-    });
-  }
-
   function restoreState() {
     var remoteRestore = global.SupabaseStorage && global.SupabaseStorage.getLatestSnapshot
       ? global.SupabaseStorage.getLatestSnapshot().catch(function (error) {
@@ -1158,27 +1153,35 @@
       : Promise.resolve(null);
 
     return remoteRestore.then(function (remoteSnapshot) {
-      if (global.DashboardState.isValidSnapshot(remoteSnapshot)) {
-        // O remoto traz só o dataset. Preserva filtros/busca/seletor do cache
-        // local para não zerar a UI a cada recarregamento.
-        return idbGet(SNAPSHOT_KEY).then(function (cachedSnapshot) {
-          var merged = remoteSnapshot;
-          if (cachedSnapshot) {
-            if (cachedSnapshot.filters) merged.filters = cachedSnapshot.filters;
-            if (typeof cachedSnapshot.search === 'string') merged.search = cachedSnapshot.search;
-            if (cachedSnapshot.analistaMode != null) merged.analistaMode = cachedSnapshot.analistaMode;
-            if (cachedSnapshot.uiStyle != null) merged.uiStyle = cachedSnapshot.uiStyle;
-          }
-          // Atualiza o cache local apenas depois de aceitar o Supabase como fonte principal.
-          idbSet(SNAPSHOT_KEY, merged).catch(function () { /* cache opcional */ });
-          return merged;
-        }, function () {
-          idbSet(SNAPSHOT_KEY, remoteSnapshot).catch(function () { /* cache opcional */ });
-          return remoteSnapshot;
-        });
-      }
       return idbGet(SNAPSHOT_KEY).then(function (cachedSnapshot) {
-        return global.DashboardState.isValidSnapshot(cachedSnapshot) ? cachedSnapshot : null;
+        var remoteOk = global.DashboardState.isValidSnapshot(remoteSnapshot);
+        var cacheOk = global.DashboardState.isValidSnapshot(cachedSnapshot);
+        if (!remoteOk && !cacheOk) return null;
+
+        var chosen = remoteOk ? remoteSnapshot : cachedSnapshot;
+        if (remoteOk && cacheOk) {
+          // Se um cliente antigo sobrescreveu o remoto com um dataset velho,
+          // vence o mais recente: quem foi importado por último manda.
+          var remoteLoadedAt = new Date(remoteSnapshot.meta.loadedAt).getTime();
+          var cacheLoadedAt = new Date(cachedSnapshot.meta.loadedAt).getTime();
+          if (Number.isFinite(cacheLoadedAt) && (!Number.isFinite(remoteLoadedAt) || cacheLoadedAt > remoteLoadedAt)) {
+            chosen = cachedSnapshot;
+          }
+        }
+
+        if (chosen === remoteSnapshot) {
+          // O remoto traz só o dataset. Preserva filtros/busca/seletor do cache
+          // local para não zerar a UI a cada recarregamento.
+          if (cacheOk) {
+            if (cachedSnapshot.filters) chosen.filters = cachedSnapshot.filters;
+            if (typeof cachedSnapshot.search === 'string') chosen.search = cachedSnapshot.search;
+            if (cachedSnapshot.analistaMode != null) chosen.analistaMode = cachedSnapshot.analistaMode;
+            if (cachedSnapshot.uiStyle != null) chosen.uiStyle = cachedSnapshot.uiStyle;
+          }
+          // Mantém o cache local alinhado com o que foi restaurado.
+          idbSet(SNAPSHOT_KEY, chosen).catch(function () { /* cache opcional */ });
+        }
+        return chosen;
       });
     }).catch(function () {
       return idbGet(SNAPSHOT_KEY).then(function (cachedSnapshot) {

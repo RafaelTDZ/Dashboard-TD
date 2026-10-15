@@ -19,7 +19,16 @@
           throw new Error('Supabase retornou ' + response.status + (body ? ': ' + body : ''));
         });
       }
-      return response.status === 204 ? null : response.json();
+      // 201/204 chegam sem corpo quando usamos "Prefer: return=minimal";
+      // chamar response.json() nesses casos acusava falha mesmo com o dado salvo.
+      return response.text().then(function (body) {
+        if (!body) return null;
+        try {
+          return JSON.parse(body);
+        } catch (error) {
+          return null;
+        }
+      });
     });
   }
 

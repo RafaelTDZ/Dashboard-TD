@@ -213,7 +213,7 @@ function createStateStub() {
     isValidSnapshot: () => false,
     normalizeFilters: (filters) => filters,
     defaultFilters: () => ({
-      operacao: '', ano: 'LATEST', mes: 'ALL', analista: 'ALL', situacao: 'ALL',
+      operacao: '', ano: 'ALL', mes: 'ALL', analista: 'ALL', situacao: 'ALL',
       regDi: 'ALL', mercadoria: 'ALL', modal: 'ALL', incoterm: 'ALL', despachante: 'ALL'
     }),
     SNAPSHOT: {}
