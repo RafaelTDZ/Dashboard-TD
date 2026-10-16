@@ -8,7 +8,8 @@
   const DEFAULT_FILTERS = {
     operacao: '',
     ano: String(new Date().getFullYear()),
-    // `mes` guarda a lista de meses marcados (ex.: ['1', '10']); lista vazia = todos os meses.
+    // `mes` guarda a lista de meses marcados (ex.: ['1', '10']); lista vazia = todos
+    // os meses e 'NONE' = nenhum mês marcado (o dashboard fica vazio).
     mes: [],
     analista: 'ALL',
     situacao: 'ALL',
@@ -39,10 +40,11 @@
     return style === 'modern' ? 'modern' : 'classic';
   }
 
-  // Meses marcados no filtro multi-seleção. Aceita a lista nova e migra os
-  // formatos antigos ('ALL' = todos; '7' = um único mês) e descarta valores
-  // inválidos ou que não existam nos dados carregados.
+  // Meses marcados no filtro multi-seleção. Aceita a lista nova, mantém o estado
+  // 'NONE' (nenhum mês marcado) e migra os formatos antigos ('ALL' = todos;
+  // '7' = um único mês); descarta valores inválidos ou fora dos dados carregados.
   function normalizeMonthSelection(value, availableMonths) {
+    if (value === 'NONE') return 'NONE';
     const source = Array.isArray(value)
       ? value
       : (typeof value === 'string' && value !== 'ALL' ? [value] : []);

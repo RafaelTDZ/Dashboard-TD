@@ -374,6 +374,24 @@ test('interações de UI não reenviam o dataset ao Supabase', async () => {
     assert.equal(document.getElementById('filter-mes-label').textContent, 'Mês 4', 'o botão deve resumir os meses marcados');
     assert.equal(spy.saves.length, 1, 'marcar meses não pode reenviar o dataset ao Supabase');
 
+    // Interruptor "Todos os Meses": um clique acende tudo e o próximo apaga tudo.
+    const master = document.getElementById('filter-mes-all');
+    master.checked = true;
+    master.dispatch('change', {});
+    await flush();
+    scheduler.advance(600);
+    await flush();
+    assert.deepEqual(indexedDB.store.get(SNAPSHOT_KEY).filters.mes, [], 'acender todos = sem filtro de mês');
+    assert.equal(document.getElementById('filter-mes-label').textContent, 'Todos os Meses');
+    master.checked = false;
+    master.dispatch('change', {});
+    await flush();
+    scheduler.advance(600);
+    await flush();
+    assert.equal(indexedDB.store.get(SNAPSHOT_KEY).filters.mes, 'NONE', 'apagar todos = nenhum mês marcado');
+    assert.equal(document.getElementById('filter-mes-label').textContent, 'Selecionar meses');
+    assert.equal(spy.saves.length, 1, 'alternar o filtro de mês não pode reenviar o dataset ao Supabase');
+
     await flush(20);
   } finally {
     restore();

@@ -170,8 +170,11 @@ test('filtro de mês permite marcar vários meses (multi-seleção)', () => {
   assert.match(html, /id="filter-mes-menu"[^>]*\shidden[\s>]/);
   assert.match(html, /id="filter-mes-list"/);
   assert.match(app, /function toggleMonth/);
-  assert.match(app, /function selectAllMonths/);
-  assert.match(app, /filters\.mes = effective\.length === available\.length \? \[\] : effective/);
+  assert.match(app, /function toggleAllMonths/);
+  assert.match(app, /state\.filters\.mes = effective\.length === 0 \? 'NONE' : \(effective\.length === available\.length \? \[\] : effective\)/);
+  // Nenhum mês marcado = dashboard vazio; o interruptor alterna tudo/nenhum.
+  assert.match(app, /getMonthFilterMode\(\) === 'none'/);
+  assert.match(app, /Selecionar meses/);
   // O estado guarda a lista marcada; lista vazia = todos os meses.
   assert.match(state, /mes: \[\]/);
   assert.match(state, /Array\.isArray\(value\)/);

@@ -282,7 +282,7 @@
     els['filter-mes-menu'].addEventListener('click', function (event) {
       if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
     });
-    els['filter-mes-all'].addEventListener('change', function () { selectAllMonths(); });
+    els['filter-mes-all'].addEventListener('change', function () { toggleAllMonths(); });
     document.addEventListener('click', function () { setMonthMenuOpen(false); });
 
     els['filter-operacao'].addEventListener('input', global.UI.debounce(function () {
@@ -456,6 +456,13 @@
     }))).sort(function (a, b) { return a - b; });
   }
 
+  // Modo do filtro de mês: 'all' = sem filtro; 'none' = nenhum mês marcado
+  // (o dashboard fica vazio); 'some' = subconjunto de meses marcado.
+  function getMonthFilterMode() {
+    if (state.filters.mes === 'NONE') return 'none';
+    return getSelectedMonths().length ? 'some' : 'all';
+  }
+
   function getSelectedMonths() {
     var selected = state.filters.mes;
     if (Array.isArray(selected)) {
@@ -463,25 +470,27 @@
         return /^(1[0-2]|[1-9])$/.test(month);
       });
     }
-    // Formato antigo de snapshot: 'ALL' = todos os meses; '7' = um único mês.
-    return typeof selected === 'string' && selected !== 'ALL' ? [selected] : [];
+    // Formatos antigos de snapshot: 'ALL' = todos; '7' = um único mês; 'NONE' = nenhum.
+    return typeof selected === 'string' && selected !== 'ALL' && selected !== 'NONE' ? [selected] : [];
   }
 
-  function monthSummary(selected) {
-    if (!selected.length) return 'Todos os Meses';
+  function monthSummary(mode, selected) {
+    if (mode === 'none') return 'Selecionar meses';
+    if (mode === 'all') return 'Todos os Meses';
     if (selected.length > 3) return selected.length + ' meses selecionados';
     return selected.map(function (month) { return global.ETL.monthName(Number(month)); }).join(', ');
   }
 
   function updateMonthFilterUi() {
+    var mode = getMonthFilterMode();
     var selected = getSelectedMonths();
-    var all = selected.length === 0;
-    els['filter-mes-all'].checked = all;
+    els['filter-mes-all'].checked = mode === 'all';
+    els['filter-mes-all'].indeterminate = mode === 'some';
     els['filter-mes-toggle'].setAttribute('aria-expanded', els['filter-mes-menu'].hidden ? 'false' : 'true');
     monthOptionInputs.forEach(function (entry) {
-      entry.input.checked = all || selected.indexOf(entry.value) > -1;
+      entry.input.checked = mode === 'all' || (mode === 'some' && selected.indexOf(entry.value) > -1);
     });
-    els['filter-mes-label'].textContent = monthSummary(selected);
+    els['filter-mes-label'].textContent = monthSummary(mode, selected);
   }
 
   function populateMonthOptions() {
@@ -513,23 +522,25 @@
 
   function toggleMonth(monthValue, checked) {
     var available = getAvailableMonths().map(String);
-    var selected = getSelectedMonths();
-    // Nenhum mês marcado = todos; ao marcar/desmarcar partimos da lista completa.
-    var effective = selected.length ? selected.slice() : available.slice();
+    var mode = getMonthFilterMode();
+    // Partimos do conjunto efetivo: em "todos" a lista inteira está marcada;
+    // em "nenhum" ela começa vazia.
+    var effective = mode === 'all' ? available.slice() : getSelectedMonths().slice();
     var index = effective.indexOf(String(monthValue));
     if (checked && index === -1) effective.push(String(monthValue));
     if (!checked && index > -1) effective.splice(index, 1);
     effective.sort(function (a, b) { return Number(a) - Number(b); });
-    // Marcar todos os meses equivale ao estado "Todos os Meses" (lista vazia).
-    state.filters.mes = effective.length === available.length ? [] : effective;
+    // Marcar todos = sem filtro (lista vazia); desmarcar todos = 'NONE' (vazio).
+    state.filters.mes = effective.length === 0 ? 'NONE' : (effective.length === available.length ? [] : effective);
     state.page = 1;
     updateMonthFilterUi();
     refresh();
     schedulePersist();
   }
 
-  function selectAllMonths() {
-    state.filters.mes = [];
+  // Interruptor geral do menu: acende todas as caixinhas e, de novo, apaga todas.
+  function toggleAllMonths() {
+    state.filters.mes = getMonthFilterMode() === 'all' ? 'NONE' : [];
     state.page = 1;
     updateMonthFilterUi();
     refresh();
@@ -633,6 +644,7 @@
     var filters = state.filters;
     if (filters.ano !== 'ALL' && selectedYear != null && getMonthlyReferenceYear(item) !== selectedYear) return false;
     if (filters.operacao && String(item.operacao).toLowerCase().indexOf(filters.operacao.toLowerCase()) === -1) return false;
+    if (getMonthFilterMode() === 'none') return false;
     var selectedMonths = getSelectedMonths();
     if (selectedMonths.length && selectedMonths.indexOf(String(getMonthlyReferenceMonth(item))) === -1) return false;
     if (filters.analista !== 'ALL' && item.analista !== filters.analista) return false;

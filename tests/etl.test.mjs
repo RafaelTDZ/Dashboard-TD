@@ -339,6 +339,10 @@ test('valida snapshots e normaliza filtros restaurados', () => {
   assert.deepEqual(mes({ mes: ['3', '3', '99'] }), ['3']);
   assert.deepEqual(mes({ mes: ['3', '9'] }, { mes: ['3', '9'] }), ['3', '9']);
   assert.deepEqual(mes({ mes: ['3', '9'] }, { mes: ['3'] }), ['3']);
+  // 'NONE' (nenhum mês marcado) sobrevive à validação: com a lista vazia de verdade,
+  // o dashboard fica vazio em vez de "voltar" para todos os meses.
+  assert.equal(mes({ mes: 'NONE' }), 'NONE');
+  assert.equal(mes({ mes: 'NONE' }, { mes: ['3'] }), 'NONE');
 
   // Sem filtros salvos, o padrão do ano é o corrente; se ele não existir nos
   // dados carregados, a normalização cai para "Todos os anos".
