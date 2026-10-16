@@ -154,9 +154,32 @@ test('filtro e coluna de mês usam a mesma referência de data (ETA/ETS)', () =>
   const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   assert.match(app, /function getMonthlyReferenceMonth/);
   assert.match(app, /state\.dataset\.map\(getMonthlyReferenceMonth\)/);
-  assert.match(app, /String\(getMonthlyReferenceMonth\(item\)\) !== filters\.mes/);
+  // Multi-seleção: o registro passa quando o mês dele está entre os marcados.
+  assert.match(app, /selectedMonths\.length && selectedMonths\.indexOf\(String\(getMonthlyReferenceMonth\(item\)\)\) === -1/);
   assert.doesNotMatch(app, /String\(item\.month\) !== filters\.mes/);
   assert.match(app, /monthName\(getMonthlyReferenceMonth\(item\)\)/);
+});
+
+test('filtro de mês permite marcar vários meses (multi-seleção)', () => {
+  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+  const html = readFileSync(join(root, 'index.html'), 'utf8');
+  const state = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
+  const styles = readFileSync(join(root, 'assets', 'css', 'styles.css'), 'utf8');
+  // Botão abre um menu de caixinhas, com "Todos os Meses" + lista de meses.
+  assert.match(html, /id="filter-mes-toggle"[^>]+aria-expanded="false"/);
+  assert.match(html, /id="filter-mes-menu"[^>]*\shidden[\s>]/);
+  assert.match(html, /id="filter-mes-list"/);
+  assert.match(app, /function toggleMonth/);
+  assert.match(app, /function selectAllMonths/);
+  assert.match(app, /filters\.mes = effective\.length === available\.length \? \[\] : effective/);
+  // O estado guarda a lista marcada; lista vazia = todos os meses.
+  assert.match(state, /mes: \[\]/);
+  assert.match(state, /Array\.isArray\(value\)/);
+  // O menu tem estilo nos dois temas.
+  assert.match(styles, /\.ui-month-menu \{/);
+  assert.match(styles, /body\[data-ui-style="modern"\] \.ui-month-menu/);
+  // As caixinhas do menu não herdam a largura/flex dos selects do painel.
+  assert.match(styles, /\.ui-filter-panel input:not\(\[type="checkbox"\]\)/);
 });
 
 test('coluna Reg DI ordena por data cronológica e não por texto', () => {

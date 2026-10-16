@@ -14,7 +14,8 @@
     'style-switcher', 'style-option-modern', 'style-option-classic',
     'banner-text', 'last-update-time', 'last-read-header',
     'kpi-volume', 'kpi-volume-hint', 'kpi-processos', 'kpi-peso', 'kpi-ticket', 'kpi-conclusao', 'kpi-sla', 'kpi-sla-hint',
-    'filter-operacao', 'filter-mes', 'filter-analista', 'filter-situacao', 'filter-reg-di',
+    'filter-operacao', 'filter-mes-toggle', 'filter-mes-label', 'filter-mes-menu', 'filter-mes-all', 'filter-mes-list',
+    'filter-analista', 'filter-situacao', 'filter-reg-di',
     'filter-mercadoria', 'filter-modal', 'filter-incoterm', 'filter-despachante', 'btn-reset-filters',
     'table-search', 'table-body', 'table-count', 'table-head', 'btn-export-csv',
     'page-size', 'page-prev', 'page-next', 'page-info', 'monthly-year',
@@ -39,6 +40,7 @@
   };
 
   const els = {};
+  var monthOptionInputs = [];
   let persistTimer = null;
   let xlsxLoadPromise = null;
   let persistenceWarningShown = false;
@@ -256,7 +258,6 @@
 
     var selectMap = {
       'monthly-year': 'ano',
-      'filter-mes': 'mes',
       'filter-analista': 'analista',
       'filter-situacao': 'situacao',
       'filter-reg-di': 'regDi',
@@ -273,6 +274,16 @@
         schedulePersist();
       });
     });
+
+    els['filter-mes-toggle'].addEventListener('click', function (event) {
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+      setMonthMenuOpen(els['filter-mes-menu'].hidden);
+    });
+    els['filter-mes-menu'].addEventListener('click', function (event) {
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+    });
+    els['filter-mes-all'].addEventListener('change', function () { selectAllMonths(); });
+    document.addEventListener('click', function () { setMonthMenuOpen(false); });
 
     els['filter-operacao'].addEventListener('input', global.UI.debounce(function () {
       state.filters.operacao = els['filter-operacao'].value.trim();
@@ -322,7 +333,10 @@
       if (event.target.closest('[data-modal-close]')) global.UI.closeModal();
     });
     document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape') global.UI.closeModal();
+      if (event.key === 'Escape') {
+        setMonthMenuOpen(false);
+        global.UI.closeModal();
+      }
     });
 
     document.querySelectorAll('[data-copy]').forEach(function (button) {
@@ -436,8 +450,94 @@
     select.value = unique.map(String).indexOf(String(current)) > -1 ? current : 'ALL';
   }
 
+  function getAvailableMonths() {
+    return Array.from(new Set(state.dataset.map(getMonthlyReferenceMonth).filter(function (month) {
+      return month != null;
+    }))).sort(function (a, b) { return a - b; });
+  }
+
+  function getSelectedMonths() {
+    var selected = state.filters.mes;
+    if (Array.isArray(selected)) {
+      return selected.map(String).filter(function (month) {
+        return /^(1[0-2]|[1-9])$/.test(month);
+      });
+    }
+    // Formato antigo de snapshot: 'ALL' = todos os meses; '7' = um único mês.
+    return typeof selected === 'string' && selected !== 'ALL' ? [selected] : [];
+  }
+
+  function monthSummary(selected) {
+    if (!selected.length) return 'Todos os Meses';
+    if (selected.length > 3) return selected.length + ' meses selecionados';
+    return selected.map(function (month) { return global.ETL.monthName(Number(month)); }).join(', ');
+  }
+
+  function updateMonthFilterUi() {
+    var selected = getSelectedMonths();
+    var all = selected.length === 0;
+    els['filter-mes-all'].checked = all;
+    els['filter-mes-toggle'].setAttribute('aria-expanded', els['filter-mes-menu'].hidden ? 'false' : 'true');
+    monthOptionInputs.forEach(function (entry) {
+      entry.input.checked = all || selected.indexOf(entry.value) > -1;
+    });
+    els['filter-mes-label'].textContent = monthSummary(selected);
+  }
+
+  function populateMonthOptions() {
+    var list = els['filter-mes-list'];
+    list.textContent = '';
+    monthOptionInputs = getAvailableMonths().map(function (value) {
+      var month = Number(value);
+      var option = document.createElement('label');
+      option.className = 'ui-month-option';
+      var input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = String(month);
+      input.className = 'ui-month-check';
+      input.addEventListener('change', function () { toggleMonth(String(month), input.checked); });
+      var text = document.createElement('span');
+      text.textContent = global.ETL.monthName(month);
+      option.appendChild(input);
+      option.appendChild(text);
+      list.appendChild(option);
+      return { value: String(month), input: input };
+    });
+    updateMonthFilterUi();
+  }
+
+  function setMonthMenuOpen(open) {
+    els['filter-mes-menu'].hidden = !open;
+    els['filter-mes-toggle'].setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  function toggleMonth(monthValue, checked) {
+    var available = getAvailableMonths().map(String);
+    var selected = getSelectedMonths();
+    // Nenhum mês marcado = todos; ao marcar/desmarcar partimos da lista completa.
+    var effective = selected.length ? selected.slice() : available.slice();
+    var index = effective.indexOf(String(monthValue));
+    if (checked && index === -1) effective.push(String(monthValue));
+    if (!checked && index > -1) effective.splice(index, 1);
+    effective.sort(function (a, b) { return Number(a) - Number(b); });
+    // Marcar todos os meses equivale ao estado "Todos os Meses" (lista vazia).
+    state.filters.mes = effective.length === available.length ? [] : effective;
+    state.page = 1;
+    updateMonthFilterUi();
+    refresh();
+    schedulePersist();
+  }
+
+  function selectAllMonths() {
+    state.filters.mes = [];
+    state.page = 1;
+    updateMonthFilterUi();
+    refresh();
+    schedulePersist();
+  }
+
   function populateFilterOptions() {
-    fillSelect(els['filter-mes'], state.dataset.map(getMonthlyReferenceMonth), 'Todos os Meses', function (month) { return global.ETL.monthName(month); });
+    populateMonthOptions();
     fillSelect(els['filter-analista'], state.dataset.map(function (item) { return item.analista; }), 'Todos os Analistas');
     fillSelect(els['filter-mercadoria'], state.dataset.map(function (item) { return item.mercadoria; }), 'Todas as Mercadorias');
     fillSelect(els['filter-incoterm'], state.dataset.map(function (item) { return item.incoterm; }), 'Todos Incoterms');
@@ -482,7 +582,7 @@
 
   function normalizeFilterState() {
     var availableValues = {
-      mes: Array.from(els['filter-mes'].options).map(function (option) { return option.value; }),
+      mes: getAvailableMonths().map(String),
       ano: Array.from(els['monthly-year'].options).map(function (option) { return option.value; }),
       analista: Array.from(els['filter-analista'].options).map(function (option) { return option.value; }),
       situacao: Array.from(els['filter-situacao'].options).map(function (option) { return option.value; }),
@@ -499,7 +599,7 @@
     normalizeFilterState();
     els['filter-operacao'].value = state.filters.operacao;
     els['monthly-year'].value = state.filters.ano;
-    els['filter-mes'].value = state.filters.mes;
+    updateMonthFilterUi();
     els['filter-analista'].value = state.filters.analista;
     els['filter-situacao'].value = state.filters.situacao;
     els['filter-reg-di'].value = state.filters.regDi;
@@ -533,7 +633,8 @@
     var filters = state.filters;
     if (filters.ano !== 'ALL' && selectedYear != null && getMonthlyReferenceYear(item) !== selectedYear) return false;
     if (filters.operacao && String(item.operacao).toLowerCase().indexOf(filters.operacao.toLowerCase()) === -1) return false;
-    if (filters.mes !== 'ALL' && String(getMonthlyReferenceMonth(item)) !== filters.mes) return false;
+    var selectedMonths = getSelectedMonths();
+    if (selectedMonths.length && selectedMonths.indexOf(String(getMonthlyReferenceMonth(item))) === -1) return false;
     if (filters.analista !== 'ALL' && item.analista !== filters.analista) return false;
     if (filters.situacao !== 'ALL') {
       var done = global.ETL.isConcluida(item);

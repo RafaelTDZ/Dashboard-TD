@@ -310,12 +310,12 @@ test('valida snapshots e normaliza filtros restaurados', () => {
 
   const filters = DashboardState.normalizeFilters(
     { ano: '2099', mes: '99', analista: 'Ana', situacao: 'Concluida', operacao: 42 },
-    { ano: ['ALL', '2025'], mes: ['ALL', '3'], analista: ['ALL', 'Ana'], situacao: ['ALL', 'Concluida', 'Andamento'] }
+    { ano: ['ALL', '2025'], mes: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'], analista: ['ALL', 'Ana'], situacao: ['ALL', 'Concluida', 'Andamento'] }
   );
   assert.deepEqual(JSON.parse(JSON.stringify(filters)), {
     operacao: '',
     ano: 'ALL',
-    mes: 'ALL',
+    mes: [],
     analista: 'Ana',
     situacao: 'Concluida',
     regDi: 'ALL',
@@ -328,6 +328,17 @@ test('valida snapshots e normaliza filtros restaurados', () => {
   // Snapshots antigos guardavam 'LATEST'; a normalização converte para 'ALL'.
   const legacy = DashboardState.normalizeFilters({ ano: 'LATEST' }, { ano: ['ALL', '2025'] });
   assert.equal(legacy.ano, 'ALL');
+
+  // Filtro de mês multi-seleção: aceita a lista nova, migra os formatos antigos
+  // ('ALL' / '7') e descarta valores inválidos ou fora dos meses carregados.
+  // (O roundtrip JSON normaliza os arrays vindos do contexto `vm`.)
+  const mes = (value, available) => JSON.parse(JSON.stringify(DashboardState.normalizeFilters(value, available).mes));
+  assert.deepEqual(mes({}), []);
+  assert.deepEqual(mes({ mes: 'ALL' }), []);
+  assert.deepEqual(mes({ mes: '7' }), ['7']);
+  assert.deepEqual(mes({ mes: ['3', '3', '99'] }), ['3']);
+  assert.deepEqual(mes({ mes: ['3', '9'] }, { mes: ['3', '9'] }), ['3', '9']);
+  assert.deepEqual(mes({ mes: ['3', '9'] }, { mes: ['3'] }), ['3']);
 
   // Sem filtros salvos, o padrão do ano é o corrente; se ele não existir nos
   // dados carregados, a normalização cai para "Todos os anos".

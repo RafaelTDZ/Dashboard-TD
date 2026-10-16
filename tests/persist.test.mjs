@@ -217,7 +217,10 @@ function parseResult() {
     commentCount: 0,
     currencyCounts: {},
     mapping: { mapped: [], unmapped: [] },
-    records: [{ operacao: 'IMP', analista: 'Ana', mercadoria: 'Café', situacao: 'Em Andamento', valor: 100, valorMoeda: 'USD' }]
+    records: [
+      { operacao: 'IMP', analista: 'Ana', mercadoria: 'Café', situacao: 'Em Andamento', valor: 100, valorMoeda: 'USD', monthlyReference: { source: 'ETA', year: 2026, month: 3 } },
+      { operacao: 'IMP-2', analista: 'Ana', mercadoria: 'Café', situacao: 'Em Andamento', valor: 200, valorMoeda: 'USD', monthlyReference: { source: 'ETA', year: 2026, month: 4 } }
+    ]
   };
 }
 
@@ -343,7 +346,7 @@ test('interações de UI não reenviam o dataset ao Supabase', async () => {
     assert.equal(spy.saves.length, 1, 'importar deve gravar exatamente uma vez no Supabase');
     const payload = spy.saves[0];
     assert.equal(payload.meta.name, 'Importações.xlsx');
-    assert.equal(payload.records.length, 1);
+    assert.equal(payload.records.length, 2);
     assert.equal(Object.prototype.hasOwnProperty.call(payload, 'filters'), false, 'o remoto não deve receber filtros');
     assert.equal(Object.prototype.hasOwnProperty.call(payload, 'search'), false, 'o remoto não deve receber busca');
     assert.equal(indexedDB.store.get(SNAPSHOT_KEY).meta.name, 'Importações.xlsx', 'a importação também deve atualizar o cache local');
@@ -356,6 +359,20 @@ test('interações de UI não reenviam o dataset ao Supabase', async () => {
     scheduler.advance(600);
     await flush();
     assert.equal(spy.saves.length, 1, 'interações após importar não podem reenviar o dataset');
+
+    // Filtro de mês multi-seleção: desmarcar um mês também grava só no cache local.
+    const monthList = document.getElementById('filter-mes-list');
+    assert.equal(monthList.children.length, 2, 'a lista deve mostrar os meses presentes nos dados');
+    const monthInput = monthList.children[0].children[0];
+    assert.equal(monthInput.value, '3');
+    monthInput.checked = false; // "Todos os Meses" marcado: desmarcar março deixa só abril.
+    monthInput.dispatch('change', {});
+    await flush();
+    scheduler.advance(600);
+    await flush();
+    assert.deepEqual(indexedDB.store.get(SNAPSHOT_KEY).filters.mes, ['4'], 'os meses marcados devem ir para o cache local');
+    assert.equal(document.getElementById('filter-mes-label').textContent, 'Mês 4', 'o botão deve resumir os meses marcados');
+    assert.equal(spy.saves.length, 1, 'marcar meses não pode reenviar o dataset ao Supabase');
 
     await flush(20);
   } finally {

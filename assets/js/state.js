@@ -8,7 +8,8 @@
   const DEFAULT_FILTERS = {
     operacao: '',
     ano: String(new Date().getFullYear()),
-    mes: 'ALL',
+    // `mes` guarda a lista de meses marcados (ex.: ['1', '10']); lista vazia = todos os meses.
+    mes: [],
     analista: 'ALL',
     situacao: 'ALL',
     regDi: 'ALL',
@@ -18,14 +19,16 @@
     despachante: 'ALL'
   };
 
-  const SELECT_FILTERS = ['ano', 'mes', 'analista', 'situacao', 'regDi', 'mercadoria', 'modal', 'incoterm', 'despachante'];
+  const SELECT_FILTERS = ['ano', 'analista', 'situacao', 'regDi', 'mercadoria', 'modal', 'incoterm', 'despachante'];
 
   function isObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
   }
 
   function defaultFilters() {
-    return Object.assign({}, DEFAULT_FILTERS);
+    const filters = Object.assign({}, DEFAULT_FILTERS);
+    filters.mes = [];
+    return filters;
   }
 
   function normalizeAnalistaMode(mode) {
@@ -34,6 +37,24 @@
 
   function normalizeUiStyle(style) {
     return style === 'modern' ? 'modern' : 'classic';
+  }
+
+  // Meses marcados no filtro multi-seleção. Aceita a lista nova e migra os
+  // formatos antigos ('ALL' = todos; '7' = um único mês) e descarta valores
+  // inválidos ou que não existam nos dados carregados.
+  function normalizeMonthSelection(value, availableMonths) {
+    const source = Array.isArray(value)
+      ? value
+      : (typeof value === 'string' && value !== 'ALL' ? [value] : []);
+    const options = availableMonths && Array.isArray(availableMonths) ? availableMonths.map(String) : null;
+    const selected = [];
+    source.forEach(function (entry) {
+      const month = String(entry);
+      if (!/^(1[0-2]|[1-9])$/.test(month)) return;
+      if (options && options.indexOf(month) === -1) return;
+      if (selected.indexOf(month) === -1) selected.push(month);
+    });
+    return selected;
   }
 
   function normalizeFilters(filters, availableValues) {
@@ -46,6 +67,8 @@
       const options = availableValues && Array.isArray(availableValues[key]) ? availableValues[key].map(String) : null;
       if (options && normalized[key] !== 'ALL' && options.indexOf(normalized[key]) === -1) normalized[key] = 'ALL';
     });
+
+    normalized.mes = normalizeMonthSelection(source.mes, availableValues && availableValues.mes);
 
     return normalized;
   }

@@ -190,9 +190,19 @@
                         <option value="ALL">Todos os anos</option>
                     </select>
 
-                    <select id="filter-mes" aria-label="Filtrar por mês" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
-                        <option value="ALL">Todos os Meses</option>
-                    </select>
+                    <div id="filter-mes-field" class="ui-month-filter">
+                        <button type="button" id="filter-mes-toggle" aria-label="Filtrar por mês" aria-haspopup="true" aria-expanded="false" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
+                            <span id="filter-mes-label" class="ui-month-label">Todos os Meses</span>
+                            <i class="fa-solid fa-chevron-down ui-month-caret" aria-hidden="true"></i>
+                        </button>
+                        <div id="filter-mes-menu" class="ui-month-menu" hidden>
+                            <label class="ui-month-option ui-month-option-all">
+                                <input type="checkbox" id="filter-mes-all">
+                                <span>Todos os Meses</span>
+                            </label>
+                            <div id="filter-mes-list" role="group" aria-label="Meses para filtrar"></div>
+                        </div>
+                    </div>
 
                     <select id="filter-situacao" aria-label="Filtrar por situação" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
                         <option value="ALL">Todas as Situações</option>
