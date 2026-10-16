@@ -191,6 +191,23 @@ test('filtro de mês permite marcar vários meses (multi-seleção)', () => {
   assert.match(styles, /\.ui-filter-panel input:not\(\[type="checkbox"\]\)/);
 });
 
+test('listas dos selects abrem no estilo do menu de mês (sem azul nativo)', () => {
+  const styles = readFileSync(join(root, 'assets', 'css', 'styles.css'), 'utf8');
+  // Chrome/Edge atual: a lista suspensa inteira é estilizável via base-select.
+  assert.match(styles, /@supports \(appearance: base-select\)/);
+  assert.match(styles, /select,\s*::picker\(select\) \{\s*appearance: base-select;/);
+  assert.match(styles, /::picker\(select\) \{\s*margin-top: 0\.35rem;[\s\S]*?background: #0f172a;/);
+  // O destaque da opção selecionada/sob o cursor é cinza-ardósia, não o azul do sistema.
+  assert.match(styles, /option:hover,[\s\S]*?background: #1e293b;/);
+  assert.match(styles, /option:checked \{\s*background: #1e293b;/);
+  // Navegadores sem suporte ainda perdem o fundo branco do popup nativo.
+  assert.match(styles, /@supports not \(appearance: base-select\)/);
+  assert.match(styles, /select option:checked \{\s*background-color: #334155;/);
+  // Tema claro (Novo) tem a versão dele, igual à do menu de mês.
+  assert.match(styles, /body\[data-ui-style="modern"\] ::picker\(select\)/);
+  assert.match(styles, /body\[data-ui-style="modern"\] option:checked \{\s*background: #f4f4f5;/);
+});
+
 test('coluna Reg DI ordena por data cronológica e não por texto', () => {
   const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   assert.match(app, /case 'regDi':/);
