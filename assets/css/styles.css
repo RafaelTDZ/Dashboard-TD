@@ -254,7 +254,8 @@ body .ui-filter-panel {
   position: absolute;
   top: calc(100% + 0.35rem);
   left: 0;
-  z-index: 45;
+  /* Acima do header fixo (z-50), abaixo do modal (z-[60]) e dos toasts (z-[70]). */
+  z-index: 55;
   width: 100%;
   min-width: 11.5rem;
   max-height: min(22.5rem, calc(100vh - 7rem));
@@ -268,6 +269,12 @@ body .ui-filter-panel {
 
 .ui-month-menu[hidden] {
   display: none;
+}
+
+/* Abre acima do botão quando não há espaço suficiente abaixo (o app decide na hora). */
+.ui-month-menu-up {
+  top: auto;
+  bottom: calc(100% + 0.35rem);
 }
 
 .ui-month-option {

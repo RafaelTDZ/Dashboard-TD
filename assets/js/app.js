@@ -516,8 +516,19 @@
   }
 
   function setMonthMenuOpen(open) {
-    els['filter-mes-menu'].hidden = !open;
-    els['filter-mes-toggle'].setAttribute('aria-expanded', open ? 'true' : 'false');
+    var menu = els['filter-mes-menu'];
+    var toggle = els['filter-mes-toggle'];
+    menu.hidden = !open;
+    if (open && typeof toggle.getBoundingClientRect === 'function' && menu.classList) {
+      // Sem espaço abaixo do botão, o menu abre para cima (cabe inteiro na tela).
+      menu.classList.remove('ui-month-menu-up');
+      var toggleRect = toggle.getBoundingClientRect();
+      var spaceBelow = global.innerHeight - toggleRect.bottom;
+      if (menu.offsetHeight + 16 > spaceBelow && toggleRect.top > spaceBelow) {
+        menu.classList.add('ui-month-menu-up');
+      }
+    }
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
 
   function toggleMonth(monthValue, checked) {
