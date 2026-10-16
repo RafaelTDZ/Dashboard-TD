@@ -257,7 +257,7 @@ body .ui-filter-panel {
   z-index: 45;
   width: 100%;
   min-width: 11.5rem;
-  max-height: 18rem;
+  max-height: min(22.5rem, calc(100vh - 7rem));
   overflow-y: auto;
   padding: 0.35rem;
   border: 1px solid #334155;

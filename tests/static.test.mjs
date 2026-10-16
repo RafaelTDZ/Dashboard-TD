@@ -181,6 +181,9 @@ test('filtro de mês permite marcar vários meses (multi-seleção)', () => {
   // O menu tem estilo nos dois temas.
   assert.match(styles, /\.ui-month-menu \{/);
   assert.match(styles, /body\[data-ui-style="modern"\] \.ui-month-menu/);
+  // O menu cabe os 12 meses + "Todos os Meses" sem rolagem (o teto de 100vh
+  // só evita estourar a janela em telas muito baixas).
+  assert.match(styles, /max-height: min\(22\.5rem, calc\(100vh - 7rem\)\)/);
   // As caixinhas do menu não herdam a largura/flex dos selects do painel.
   assert.match(styles, /\.ui-filter-panel input:not\(\[type="checkbox"\]\)/);
 });
