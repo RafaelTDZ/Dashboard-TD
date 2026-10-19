@@ -16,7 +16,17 @@
     return fetch(SUPABASE_URL + '/rest/v1/' + path, requestOptions).then(function (response) {
       if (!response.ok) {
         return response.text().then(function (body) {
-          throw new Error('Supabase retornou ' + response.status + (body ? ': ' + body : ''));
+          var payload = null;
+          try { payload = body ? JSON.parse(body) : null; } catch (error) { payload = null; }
+          var detail = payload && payload.message ? payload.message : body;
+          var failure = new Error('Supabase retornou ' + response.status + (detail ? ': ' + detail : ''));
+          failure.status = response.status;
+          if (payload) {
+            failure.code = payload.code;
+            failure.details = payload.details;
+            failure.hint = payload.hint;
+          }
+          throw failure;
         });
       }
       // 201/204 chegam sem corpo quando usamos "Prefer: return=minimal";
@@ -47,7 +57,7 @@
   }
 
   function getLatestSnapshot() {
-    return request(TABLE + '?select=file_name,sheet_name,records,metadata,created_at&order=created_at.desc&limit=1')
+    return request(TABLE + '?select=file_name,sheet_name,records,metadata,created_at&order=created_at.desc,id.desc&limit=1')
       .then(function (rows) {
         if (!rows || !rows.length) return null;
         var row = rows[0];

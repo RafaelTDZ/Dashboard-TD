@@ -172,7 +172,7 @@ function createIndexedDb() {
   };
 }
 
-function createUiStub(toasts) {
+function createUiStub(toasts, modals) {
   return {
     toast: (message, type, title) => toasts.push({ message, type, title }),
     debounce: (fn) => fn,
@@ -183,7 +183,7 @@ function createUiStub(toasts) {
     formatPercent: (value) => value + '%',
     formatCurrencyFull: () => '$0',
     formatDateTime: () => '01/01/2026 às 00:00',
-    openModal: () => {},
+    openModal: (options) => { if (modals) modals.push(options); },
     closeModal: () => {},
     copyText: () => {},
     downloadFile: () => {}
@@ -243,6 +243,13 @@ function makeSnapshot(name, loadedAt) {
       loadedAt
     }
   };
+}
+
+function makeSnapshotWithRecords(name, loadedAt, records) {
+  const snapshot = makeSnapshot(name, loadedAt);
+  snapshot.records = records;
+  snapshot.meta.rowCount = records.length;
+  return snapshot;
 }
 
 function createSupabaseSpy(remoteSnapshot) {
@@ -398,6 +405,95 @@ test('interações de UI não reenviam o dataset ao Supabase', async () => {
   }
 });
 
+test('importação é bloqueada quando o arquivo novo não contém todos os processos do banco', async () => {
+  const scheduler = createScheduler();
+  const { document, fileInput, listeners } = createDom();
+  const indexedDB = createIndexedDb();
+  indexedDB.store.set(SNAPSHOT_KEY, makeSnapshot('CACHE.xlsx', '2026-10-15T12:00:00.000Z'));
+  const remote = makeSnapshotWithRecords('REMOTO.xlsx', '2026-10-16T12:00:00.000Z', [
+    { operacao: 'IMP', analista: 'Ana', valor: 100 },
+    { operacao: 'IMP-2', analista: 'Ana', valor: 200 },
+    { operacao: 'IMP-ANTIGO', analista: 'Ana', valor: 300 }
+  ]);
+  const spy = createSupabaseSpy(remote);
+  const toasts = [];
+  const modals = [];
+  const restore = installGlobals({ document, scheduler, indexedDB, ui: createUiStub(toasts, modals), supabase: spy.storage });
+
+  try {
+    new Function(appSource)();
+    const init = listeners.get('DOMContentLoaded')[0];
+    init();
+    await flush();
+    scheduler.advance(0);
+    await flush();
+
+    fileInput.files = [{ name: 'Importações.xlsx', arrayBuffer: async () => new ArrayBuffer(8) }];
+    fileInput.dispatch('change', { target: fileInput });
+    await flush(30);
+    scheduler.advance(600);
+    await flush(30);
+
+    assert.equal(spy.saves.length, 0, 'arquivo incompleto não pode ser enviado ao Supabase');
+    assert.equal(indexedDB.store.get(SNAPSHOT_KEY).meta.name, 'REMOTO.xlsx', 'o cache local deve continuar com o snapshot válido');
+    const blocked = modals.find((entry) => entry.title === 'Importação bloqueada');
+    assert.ok(blocked, 'deve abrir o modal de importação bloqueada');
+    assert.match(blocked.html, /IMP-ANTIGO/, 'o modal deve listar o processo ausente');
+    assert.ok(toasts.some((entry) => entry.type === 'error' && /não foi importado/.test(entry.message)), 'deve avisar que nada foi importado');
+
+    await flush(20);
+  } finally {
+    restore();
+  }
+});
+
+test('recusa do banco não grava o snapshot recusado no cache local e restaura o anterior', async () => {
+  const scheduler = createScheduler();
+  const { document, fileInput, listeners } = createDom();
+  const indexedDB = createIndexedDb();
+  indexedDB.store.set(SNAPSHOT_KEY, makeSnapshot('CACHE.xlsx', '2026-10-15T12:00:00.000Z'));
+  const remote = makeSnapshot('REMOTO.xlsx', '2026-10-16T12:00:00.000Z');
+  const spy = { saves: [], storage: null };
+  spy.storage = {
+    saveSnapshot: (snapshot) => {
+      spy.saves.push(snapshot);
+      const error = new Error('Supabase retornou 400: SNAPSHOT_MISSING_RECORDS: 1 processo(s) do banco não estão no arquivo novo');
+      error.code = 'P0001';
+      error.details = 'IMP-ANTIGO';
+      return Promise.reject(error);
+    },
+    getLatestSnapshot: () => Promise.resolve(remote)
+  };
+  const toasts = [];
+  const modals = [];
+  const restore = installGlobals({ document, scheduler, indexedDB, ui: createUiStub(toasts, modals), supabase: spy.storage });
+
+  try {
+    new Function(appSource)();
+    const init = listeners.get('DOMContentLoaded')[0];
+    init();
+    await flush();
+    scheduler.advance(0);
+    await flush();
+
+    fileInput.files = [{ name: 'Importações.xlsx', arrayBuffer: async () => new ArrayBuffer(8) }];
+    fileInput.dispatch('change', { target: fileInput });
+    await flush(30);
+    scheduler.advance(600);
+    await flush(30);
+
+    assert.equal(spy.saves.length, 1, 'o arquivo deve ser tentado uma vez no banco');
+    assert.equal(indexedDB.store.get(SNAPSHOT_KEY).meta.name, 'REMOTO.xlsx', 'o snapshot recusado não pode substituir o cache local');
+    const rejected = modals.find((entry) => entry.title === 'Importação recusada pelo banco');
+    assert.ok(rejected, 'deve abrir o modal de recusa do banco');
+    assert.ok(toasts.some((entry) => entry.type === 'error' && /snapshot anterior foi mantido/i.test(entry.message)), 'deve avisar que o snapshot anterior foi mantido');
+
+    await flush(20);
+  } finally {
+    restore();
+  }
+});
+
 test('cache local mais recente vence um remoto sobrescrito por dado velho', async () => {
   const scheduler = createScheduler();
   const { document, listeners } = createDom();
@@ -514,6 +610,32 @@ test('erro HTTP do Supabase continua sendo reportado', async () => {
     await assert.rejects(
       () => globalThis.SupabaseStorage.saveSnapshot({ meta: { name: 'x.xlsx', sheetName: 'S' }, records: [{}] }),
       /Supabase retornou 401/
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+test('erro do trigger do Supabase preserva código e detalhes para a interface', async () => {
+  const stub = stubFetch(() => fakeResponse({
+    ok: false,
+    status: 400,
+    body: JSON.stringify({
+      code: 'P0001',
+      message: 'SNAPSHOT_MISSING_RECORDS: 2 processo(s) do banco não estão no arquivo novo',
+      details: 'IMP-1, IMP-2'
+    })
+  }));
+  try {
+    new Function(supabaseSource)();
+    await assert.rejects(
+      () => globalThis.SupabaseStorage.saveSnapshot({ meta: { name: 'x.xlsx', sheetName: 'S' }, records: [{}] }),
+      (error) => {
+        assert.match(error.message, /SNAPSHOT_MISSING_RECORDS/);
+        assert.equal(error.code, 'P0001');
+        assert.equal(error.details, 'IMP-1, IMP-2');
+        return true;
+      }
     );
   } finally {
     stub.restore();

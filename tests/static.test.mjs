@@ -279,7 +279,11 @@ test('card de status 茅 transit贸rio e s贸 aparece ap贸s carregar um arquivo', (
   const revealCallSites = [...app.matchAll(/^\s+showTransientUpdateBanner\(\);/gm)];
   assert.equal(revealCallSites.length, 1);
   const upload = app.match(/function handleFileUpload\(event\)\s*\{([\s\S]*?)\r?\n  \}\r?\n/)[1];
-  assert.match(upload, /showTransientUpdateBanner\(\);/);
+  const applyImport = app.match(/function applyImportedDataset\([^)]*\)\s*\{([\s\S]*?)\r?\n  \}\r?\n/)[1];
+  assert.ok(
+    /showTransientUpdateBanner\(\);/.test(upload) || /showTransientUpdateBanner\(\);/.test(applyImport),
+    'o fluxo de upload deve revelar o card de status'
+  );
 
   // E ele volta a se esconder sozinho, fechando de verdade via hideStatusBanner().
   assert.match(app, /var STATUS_BANNER_VISIBLE_MS = \d+;/);
@@ -295,3 +299,14 @@ test('card de status 茅 transit贸rio e s贸 aparece ap贸s carregar um arquivo', (
   assert.doesNotMatch(app, /banner\.textContent = error\.message/);
 });
 
+
+test('migration mant閙 um 鷑ico snapshot e valida a lista de Opera珲es', () => {
+  const migration = readFileSync(join(root, 'supabase', 'migrations', '20261019120000_excel_imports_single_latest.sql'), 'utf8');
+
+  assert.match(migration, /create or replace function public\.excel_imports_enforce_single_latest\(\)/);
+  assert.match(migration, /security definer/);
+  assert.match(migration, /before insert on public\.excel_imports/);
+  assert.match(migration, /SNAPSHOT_MISSING_RECORDS/);
+  assert.match(migration, /SNAPSHOT_DUPLICATE_KEYS/);
+  assert.match(migration, /delete from public\.excel_imports/);
+});

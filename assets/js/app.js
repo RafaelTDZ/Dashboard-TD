@@ -44,6 +44,7 @@
   let persistTimer = null;
   let xlsxLoadPromise = null;
   let persistenceWarningShown = false;
+  let pendingSnapshotValidations = 0;
 
   function cacheElements() {
     REQUIRED_ELEMENT_IDS.forEach(function (id) {
@@ -149,6 +150,51 @@
     return record;
   }
 
+  function canonicalizeDataset(records) {
+    if (!Array.isArray(records)) return;
+    if (global.ETL && typeof global.ETL.canonicalizeField === 'function') {
+      ['agente', 'origem', 'destino', 'mercadoria', 'analista', 'despachante'].forEach(function (field) {
+        global.ETL.canonicalizeField(records, field);
+      });
+    } else if (global.ETL && typeof global.ETL.canonicalizeAgents === 'function') {
+      global.ETL.canonicalizeAgents(records);
+    }
+  }
+
+  function applySnapshotToState(snapshot) {
+    state.dataset = snapshot.records.map(prepareRecord);
+    canonicalizeDataset(state.dataset);
+    state.meta = {
+      name: snapshot.meta.name,
+      sheetName: snapshot.meta.sheetName,
+      headerRow: snapshot.meta.headerRow,
+      rowCount: snapshot.meta.rowCount,
+      ignoredRows: snapshot.meta.ignoredRows || 0,
+      commentCount: snapshot.meta.commentCount || 0,
+      parserVersion: snapshot.meta.parserVersion || 1,
+      loadedAt: new Date(snapshot.meta.loadedAt)
+    };
+    state.isDemo = false;
+    state.page = 1;
+    if (snapshot.filters) Object.assign(state.filters, snapshot.filters);
+    if (typeof snapshot.search === 'string') state.search = snapshot.search;
+    if (snapshot.analistaMode != null) {
+      state.analistaMode = global.DashboardState.normalizeAnalistaMode(snapshot.analistaMode);
+    }
+    if (snapshot.uiStyle != null) {
+      state.uiStyle = global.DashboardState.normalizeUiStyle(snapshot.uiStyle);
+      applyVisualStyle(state.uiStyle, false);
+    }
+    applyAnalistaModeUI();
+  }
+
+  function resetToDemoState() {
+    state.dataset = [];
+    state.meta = { name: DEMO_FILE, sheetName: '', headerRow: null, rowCount: 0, loadedAt: new Date() };
+    state.isDemo = true;
+    state.page = 1;
+  }
+
   function init() {
     try {
       cacheElements();
@@ -167,51 +213,13 @@
     if (!chartsReady) global.UI.toast('Chart.js não foi carregado. Os gráficos ficarão indisponíveis.', 'error', 'Falha de dependência');
     restoreState().then(function (snapshot) {
       if (snapshot) {
-        state.dataset = snapshot.records.map(prepareRecord);
-        if (global.ETL && typeof global.ETL.canonicalizeField === 'function') {
-          ['agente', 'origem', 'destino', 'mercadoria', 'analista', 'despachante'].forEach(function (field) {
-            global.ETL.canonicalizeField(state.dataset, field);
-          });
-        } else if (global.ETL && typeof global.ETL.canonicalizeAgents === 'function') {
-          global.ETL.canonicalizeAgents(state.dataset);
-        }
-        state.meta = {
-          name: snapshot.meta.name,
-          sheetName: snapshot.meta.sheetName,
-          headerRow: snapshot.meta.headerRow,
-          rowCount: snapshot.meta.rowCount,
-          ignoredRows: snapshot.meta.ignoredRows || 0,
-          commentCount: snapshot.meta.commentCount || 0,
-          parserVersion: snapshot.meta.parserVersion || 1,
-          loadedAt: new Date(snapshot.meta.loadedAt)
-        };
-        state.isDemo = false;
-        if (snapshot.filters) Object.assign(state.filters, snapshot.filters);
-        if (typeof snapshot.search === 'string') state.search = snapshot.search;
-        if (snapshot.analistaMode != null) {
-          if (global.DashboardState && typeof global.DashboardState.normalizeAnalistaMode === 'function') {
-            state.analistaMode = global.DashboardState.normalizeAnalistaMode(snapshot.analistaMode);
-          } else {
-            state.analistaMode = snapshot.analistaMode === 'qtd' ? 'qtd' : 'valor';
-          }
-        }
-        if (snapshot.uiStyle != null) {
-          if (global.DashboardState && typeof global.DashboardState.normalizeUiStyle === 'function') {
-            state.uiStyle = global.DashboardState.normalizeUiStyle(snapshot.uiStyle);
-          } else {
-            state.uiStyle = snapshot.uiStyle === 'modern' ? 'modern' : 'classic';
-          }
-          applyVisualStyle(state.uiStyle, false);
-        }
-        applyAnalistaModeUI();
+        applySnapshotToState(snapshot);
         global.UI.toast('Último arquivo carregado restaurado: ' + snapshot.meta.name, 'info', 'Sessão restaurada');
         if (state.meta.parserVersion !== global.ETL.PARSER_VERSION) {
           global.UI.toast('Os dados salvos foram mantidos. Reimporte o Excel para aplicar as correções do importador.', 'warning', 'Reimportação recomendada');
         }
       } else {
-        state.dataset = [];
-        state.meta = { name: DEMO_FILE, sheetName: '', headerRow: null, rowCount: 0, loadedAt: new Date() };
-        state.isDemo = true;
+        resetToDemoState();
       }
       populateFilterOptions();
       normalizeFilterState();
@@ -219,9 +227,7 @@
       refresh();
     }).catch(function (error) {
       console.error('Falha ao inicializar o dataset.', error);
-      state.dataset = [];
-      state.meta = { name: DEMO_FILE, sheetName: '', headerRow: null, rowCount: 0, loadedAt: new Date() };
-      state.isDemo = true;
+      resetToDemoState();
       populateFilterOptions();
       normalizeFilterState();
       applyFilterStateToInputs();
@@ -1035,10 +1041,165 @@
     });
   }
 
+  function fetchComparisonSnapshot() {
+    if (!global.SupabaseStorage || typeof global.SupabaseStorage.getLatestSnapshot !== 'function') {
+      return Promise.resolve({ available: false, snapshot: null });
+    }
+    return global.SupabaseStorage.getLatestSnapshot().then(function (snapshot) {
+      return { available: true, snapshot: snapshot || null };
+    }).catch(function (error) {
+      console.warn('[BI Hub] Não foi possível comparar com o banco antes da importação; o trigger do Supabase fará a validação.', error);
+      return { available: false, snapshot: null };
+    });
+  }
+
+  function comparisonList(keys) {
+    var visible = (keys || []).slice(0, 20).map(function (key) {
+      return '<li class="py-1 font-mono text-xs text-amber-300">' + global.UI.escapeHtml(key) + '</li>';
+    }).join('');
+    var remaining = keys && keys.length > 20
+      ? '<p class="mt-2 text-xs text-slate-500">... e mais ' + global.UI.formatNumber(keys.length - 20) + ' processo(s).</p>'
+      : '';
+    return '<ul class="max-h-48 overflow-y-auto custom-scrollbar">' + visible + '</ul>' + remaining;
+  }
+
+  function showBlockedImport(file, comparison) {
+    var missing = comparison.removed || [];
+    var html = '<p class="mb-3 text-slate-300">O arquivo <strong class="text-slate-200">' + global.UI.escapeHtml(file.name) +
+      '</strong> não contém <strong class="text-amber-300">' + global.UI.formatNumber(missing.length) +
+      ' processo(s)</strong> que já estão no banco:</p>' +
+      comparisonList(missing) +
+      '<p class="mt-4 text-sm text-slate-400">Nada foi alterado. O snapshot anterior foi mantido. ' +
+      'Reimporte uma planilha que contenha todos esses processos.</p>';
+    global.UI.openModal({ title: 'Importação bloqueada', html: html });
+    global.UI.toast('"' + file.name + '" não foi importado: o arquivo não contém todos os processos do banco.', 'error', 'Arquivo incompleto');
+  }
+
+  function showInvalidImport(file, comparison) {
+    var reason = comparison.nextReason === 'duplicate'
+      ? 'A Operação <strong class="font-mono text-amber-300">' + global.UI.escapeHtml(comparison.nextInvalidKey) + '</strong> aparece mais de uma vez.'
+      : (comparison.nextReason === 'empty'
+        ? 'A linha <strong class="text-slate-200">' + global.UI.formatNumber(comparison.nextInvalidIndex) + '</strong> está sem Operação.'
+        : 'Não foi possível identificar a Operação dos registros.');
+    var html = '<p class="mb-3 text-slate-300">O arquivo <strong class="text-slate-200">' + global.UI.escapeHtml(file.name) +
+      '</strong> não pode ser comparado com o banco.</p><p class="mb-3 text-slate-400">' + reason +
+      ' A importação foi bloqueada para não comprometer a comparação dos processos.</p>';
+    global.UI.openModal({ title: 'Importação bloqueada', html: html });
+    global.UI.toast('"' + file.name + '" não foi importado: Operação ausente ou duplicada.', 'error', 'Arquivo inválido');
+  }
+
+  function formatComparisonSummary(comparison, remoteCompared) {
+    if (!remoteCompared || !comparison || !comparison.comparable) return '';
+    if (!comparison.previousCount) {
+      return ' Primeiro snapshot do banco (' + global.UI.formatNumber(comparison.nextCount) + ' processos).';
+    }
+    var parts = [];
+    if (comparison.addedCount) parts.push(global.UI.formatNumber(comparison.addedCount) + ' novo(s)');
+    if (comparison.updatedCount) parts.push(global.UI.formatNumber(comparison.updatedCount) + ' atualizado(s)');
+    if (comparison.removedCount) parts.push(global.UI.formatNumber(comparison.removedCount) + ' removido(s)');
+    return parts.length
+      ? ' Comparação com o banco: ' + parts.join(', ') + '.'
+      : ' Sem alterações em relação ao banco.';
+  }
+
+  function applyImportedDataset(result, records) {
+    state.dataset = records;
+    state.meta = {
+      name: result.fileName,
+      sheetName: result.sheetName,
+      headerRow: result.headerRowNumber,
+      rowCount: result.totalRows,
+      ignoredRows: result.ignoredRows || 0,
+      commentCount: result.commentCount || 0,
+      parserVersion: global.ETL.PARSER_VERSION,
+      loadedAt: new Date()
+    };
+    state.isDemo = false;
+    state.page = 1;
+    populateFilterOptions();
+    resetFilters({ silent: true, skipRefresh: true });
+    refresh();
+    showTransientUpdateBanner();
+  }
+
+  function showImportSuccess(file, result, comparison, remoteCompared, persistence) {
+    var ignoredMessage = result.ignoredRows
+      ? ' ' + global.UI.formatNumber(result.ignoredRows) + ' linha(s) sem campos operacionais foram ignoradas.'
+      : '';
+    var commentMessage = result.commentCount
+      ? ' ' + global.UI.formatNumber(result.commentCount) + ' comentário(s) da aba Comments foram associados.'
+      : '';
+    var foreignCurrencyEntries = Object.keys(result.currencyCounts || {}).filter(function (currency) {
+      return currency !== 'USD' && result.currencyCounts[currency] > 0;
+    });
+    var foreignCurrencyMessage = foreignCurrencyEntries.length
+      ? ' ' + global.UI.formatNumber(foreignCurrencyEntries.reduce(function (total, currency) { return total + result.currencyCounts[currency]; }, 0)) +
+        ' valor(es) em ' + foreignCurrencyEntries.join(', ') + ' foram preservados sem conversão para USD.'
+      : '';
+    var comparisonMessage = formatComparisonSummary(comparison, remoteCompared);
+    var persistenceMessage = persistence && persistence.saved ? '' : ' O arquivo ficou salvo apenas neste navegador.';
+    global.UI.toast('"' + file.name + '" importado: ' + global.UI.formatNumber(result.totalRows) +
+      ' processo(s) na guia "' + result.sheetName + '".' + ignoredMessage + commentMessage + foreignCurrencyMessage +
+      comparisonMessage + persistenceMessage,
+      persistence && persistence.saved ? 'success' : 'warning', 'Excel carregado');
+  }
+
+  function restorePreviousSnapshot(snapshot) {
+    // Prefere o snapshot mais recente da nuvem/cache (outra aba pode ter
+    // importado enquanto este arquivo era enviado); o snapshot capturado antes
+    // do upload é apenas a reserva quando a restauração não encontra nada.
+    return restoreState().then(function (chosen) {
+      var target = chosen || snapshot;
+      if (target) applySnapshotToState(target);
+      else resetToDemoState();
+      populateFilterOptions();
+      normalizeFilterState();
+      applyFilterStateToInputs();
+      refresh();
+    });
+  }
+
+  // Enquanto houver importação remota em andamento, o cache local fica
+  // congelado para que um snapshot ainda não aceito pelo banco não seja gravado.
+  function beginSnapshotValidation(context) {
+    if (context.validationOpen) return;
+    context.validationOpen = true;
+    pendingSnapshotValidations += 1;
+  }
+
+  function endSnapshotValidation(context) {
+    if (!context.validationOpen) return;
+    context.validationOpen = false;
+    pendingSnapshotValidations = Math.max(0, pendingSnapshotValidations - 1);
+  }
+
+  function handleRejectedSnapshot(error, previousSnapshot) {
+    var message = String(error && error.message || '');
+    var missingMatch = message.match(/SNAPSHOT_MISSING_RECORDS:\s*([0-9.,]+)/);
+    var missingCount = missingMatch ? missingMatch[1] : '';
+    var details = typeof error.details === 'string' ? error.details.trim() : '';
+    var detailHtml = details
+      ? '<ul class="max-h-40 overflow-y-auto custom-scrollbar">' + details.split(',').slice(0, 20).map(function (key) {
+        return '<li class="py-1 font-mono text-xs text-amber-300">' + global.UI.escapeHtml(key.trim()) + '</li>';
+      }).join('') + '</ul>'
+      : '';
+    var html = (missingCount
+      ? '<p class="mb-3 text-slate-300">O banco recusou o arquivo porque ele não contém <strong class="text-amber-300">' +
+        global.UI.escapeHtml(missingCount) + ' processo(s)</strong> que já estavam salvos.</p>'
+      : '<p class="mb-3 text-slate-300">O banco recusou o arquivo. Nenhum dado foi substituído.</p>') +
+      detailHtml +
+      '<p class="mt-4 text-sm text-slate-400">O snapshot anterior foi restaurado neste navegador.</p>';
+    global.UI.openModal({ title: 'Importação recusada pelo banco', html: html });
+    global.UI.toast('O arquivo não foi salvo no banco. O snapshot anterior foi mantido.', 'error', 'Importação recusada');
+    return restorePreviousSnapshot(previousSnapshot);
+  }
+
   function handleFileUpload(event) {
     var input = event.target;
     var file = input.files && input.files[0];
     if (!file) return;
+    var previousSnapshot = buildSnapshot();
+    var validationContext = { validationOpen: false };
     setUploadLoading(input, true);
     global.UI.toast('Processando "' + file.name + '"...', 'info');
     ensureXlsxLoaded().then(function () {
@@ -1047,48 +1208,47 @@
       return parseBuffer(buffer);
     }).then(function (result) {
       if (result.error) throw result.error;
-      state.dataset = result.records.map(prepareRecord);
-      if (global.ETL && typeof global.ETL.canonicalizeField === 'function') {
-        ['agente', 'origem', 'destino', 'mercadoria', 'analista', 'despachante'].forEach(function (field) {
-          global.ETL.canonicalizeField(state.dataset, field);
+      var nextRecords = result.records.map(prepareRecord);
+      canonicalizeDataset(nextRecords);
+      result.fileName = file.name;
+      return fetchComparisonSnapshot().then(function (comparisonSource) {
+        var remoteCompared = comparisonSource.available;
+        var previousRecords = remoteCompared
+          ? (comparisonSource.snapshot && Array.isArray(comparisonSource.snapshot.records) ? comparisonSource.snapshot.records : [])
+          : (!state.isDemo && Array.isArray(state.dataset) ? state.dataset : []);
+        var comparison = global.DashboardState.compareRecords(previousRecords, nextRecords);
+
+        if (!comparison.nextValid) {
+          showInvalidImport(file, comparison);
+          return null;
+        }
+        if (remoteCompared && comparison.comparable && comparison.removedCount > 0) {
+          showBlockedImport(file, comparison);
+          return null;
+        }
+
+        beginSnapshotValidation(validationContext);
+        applyImportedDataset(result, nextRecords);
+        return persistNow().then(function (persistence) {
+          if (persistence && persistence.validationError) {
+            return handleRejectedSnapshot(persistence.validationError, previousSnapshot).then(function () {
+              endSnapshotValidation(validationContext);
+              return null;
+            });
+          }
+          endSnapshotValidation(validationContext);
+          showImportSuccess(file, result, comparison, remoteCompared, persistence);
+          if (result.mapping.unmapped.length || result.commentCount) {
+            showMappingReport(result, comparison, remoteCompared);
+          }
+          return result;
+        }).catch(function (error) {
+          endSnapshotValidation(validationContext);
+          throw error;
         });
-      } else if (global.ETL && typeof global.ETL.canonicalizeAgents === 'function') {
-        global.ETL.canonicalizeAgents(state.dataset);
-      }
-      state.meta = {
-        name: file.name,
-        sheetName: result.sheetName,
-        headerRow: result.headerRowNumber,
-        rowCount: result.totalRows,
-        ignoredRows: result.ignoredRows || 0,
-        commentCount: result.commentCount || 0,
-        parserVersion: global.ETL.PARSER_VERSION,
-        loadedAt: new Date()
-      };
-      state.isDemo = false;
-      state.page = 1;
-      populateFilterOptions();
-      resetFilters({ silent: true, skipRefresh: true });
-      schedulePersist({ remote: true });
-      refresh();
-      showTransientUpdateBanner();
-      var ignoredMessage = result.ignoredRows
-        ? ' ' + global.UI.formatNumber(result.ignoredRows) + ' linha(s) sem campos operacionais foram ignoradas.'
-        : '';
-      var commentMessage = result.commentCount
-        ? ' ' + global.UI.formatNumber(result.commentCount) + ' comentário(s) da aba Comments foram associados.'
-        : '';
-      var foreignCurrencyEntries = Object.keys(result.currencyCounts || {}).filter(function (currency) {
-        return currency !== 'USD' && result.currencyCounts[currency] > 0;
       });
-      var foreignCurrencyMessage = foreignCurrencyEntries.length
-        ? ' ' + global.UI.formatNumber(foreignCurrencyEntries.reduce(function (total, currency) { return total + result.currencyCounts[currency]; }, 0)) +
-          ' valor(es) em ' + foreignCurrencyEntries.join(', ') + ' foram preservados sem conversão para USD.'
-        : '';
-      global.UI.toast('"' + file.name + '" importado: ' + global.UI.formatNumber(result.totalRows) +
-        ' processo(s) na guia "' + result.sheetName + '".' + ignoredMessage + commentMessage + foreignCurrencyMessage, 'success', 'Excel carregado');
-      if (result.mapping.unmapped.length || result.commentCount) showMappingReport(result);
     }).catch(function (error) {
+      endSnapshotValidation(validationContext);
       console.error('[BI Hub] Falha na importação.', error && error.message ? error.message : error);
       global.UI.toast(error && error.message ? error.message : 'Falha ao processar o arquivo Excel.', 'error', 'Erro na importação');
     }).then(function () {
@@ -1097,7 +1257,7 @@
     });
   }
 
-  function showMappingReport(result) {
+  function showMappingReport(result, comparison, remoteCompared) {
     var mapped = result.mapping.mapped.map(function (entry) {
       return '<li class="flex items-center justify-between gap-3 py-1.5 border-b border-slate-800">' +
         '<span class="text-slate-400">' + global.UI.escapeHtml(entry.label) + '</span>' +
@@ -1106,11 +1266,22 @@
     var unmapped = result.mapping.unmapped.map(function (header) {
       return '<li class="py-1 font-mono text-slate-300">' + global.UI.escapeHtml(header) + '</li>';
     }).join('');
+    var comparisonHtml = '';
+    if (remoteCompared && comparison && comparison.comparable) {
+      comparisonHtml = comparison.previousCount
+        ? '<p class="mb-3 text-slate-400">Comparação com o banco: <strong class="text-emerald-400">' +
+          global.UI.formatNumber(comparison.addedCount) + '</strong> novo(s), <strong class="text-amber-300">' +
+          global.UI.formatNumber(comparison.updatedCount) + '</strong> atualizado(s), <strong class="text-slate-200">' +
+          global.UI.formatNumber(comparison.unchangedCount) + '</strong> sem alteração.</p>'
+        : '<p class="mb-3 text-slate-400">Primeiro snapshot do banco: <strong class="text-emerald-400">' +
+          global.UI.formatNumber(comparison.nextCount) + '</strong> processo(s).</p>';
+    }
     var html = '<p class="mb-3 text-slate-400">Guia <strong class="text-slate-200">' + global.UI.escapeHtml(result.sheetName) +
       '</strong>, cabeçalho na linha <strong class="text-slate-200">' + result.headerRowNumber + '</strong>, ' +
       global.UI.formatNumber(result.totalRows) + ' registros lidos.' +
       (result.ignoredRows ? ' ' + global.UI.formatNumber(result.ignoredRows) + ' linha(s) sem campos operacionais foram ignoradas.' : '') +
       (result.commentCount ? ' A aba <strong class="text-slate-200">Comments</strong> trouxe ' + global.UI.formatNumber(result.commentCount) + ' observação(ões), associada(s) pela linha do Excel e exportada(s) no CSV.' : '') + '</p>' +
+      comparisonHtml +
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">' +
       '<div><h4 class="font-bold text-emerald-400 mb-2 text-[11px] uppercase tracking-wide">Colunas reconhecidas</h4>' +
       '<ul>' + (mapped || '<li class="text-slate-500">Nenhuma</li>') + '</ul></div>' +
@@ -1184,15 +1355,32 @@
     });
   }
 
+  function isSnapshotRejected(error) {
+    return !!error && /SNAPSHOT_(MISSING_RECORDS|INVALID_KEYS|DUPLICATE_KEYS|INVALID)/.test(String(error.message || ''));
+  }
+
   function schedulePersist(options) {
     var settings = options || {};
     var remote = settings.remote === true;
     clearTimeout(persistTimer);
     persistTimer = setTimeout(function () {
+      if (pendingSnapshotValidations > 0) {
+        // Não grava no cache local um snapshot que o banco ainda pode recusar.
+        // Reagenda para depois que a importação remota terminar.
+        schedulePersist(settings);
+        return;
+      }
       var task = remote ? persistState() : persistLocal();
-      task.then(function (saved) {
+      task.then(function (result) {
+        var saved = result === true || (result && result.saved === true);
         if (saved) {
           persistenceWarningShown = false;
+          return;
+        }
+        if (result && result.validationError) {
+          // A importação usa persistNow() e trata a recusa antes de chegar aqui;
+          // esta é apenas uma rede de segurança para chamadas remotas antigas.
+          handleRejectedSnapshot(result.validationError, null);
           return;
         }
         if (!state.isDemo && !persistenceWarningShown) {
@@ -1209,6 +1397,13 @@
         }
       });
     }, 600);
+  }
+
+  // Importação precisa saber se o banco aceitou o snapshot antes de mostrar
+  // sucesso; interações de UI continuam usando o debounce de schedulePersist().
+  function persistNow() {
+    clearTimeout(persistTimer);
+    return persistState();
   }
 
   function buildSnapshot() {
@@ -1247,23 +1442,35 @@
   // só no navegador (IndexedDB), nunca no remoto.
   function persistState() {
     var snapshot = buildSnapshot();
-    if (!snapshot) return Promise.resolve(false);
+    if (!snapshot) return Promise.resolve({ saved: false, remote: false, validationError: null });
     var remoteSnapshot = {
       version: snapshot.version,
       records: snapshot.records,
       meta: snapshot.meta
     };
     var remoteSave = global.SupabaseStorage && global.SupabaseStorage.saveSnapshot
-      ? global.SupabaseStorage.saveSnapshot(remoteSnapshot).catch(function (error) {
-        console.error('[BI Hub] Falha ao salvar no Supabase.', error);
-        return false;
-      })
+      ? global.SupabaseStorage.saveSnapshot(remoteSnapshot)
       : Promise.resolve(false);
 
     return remoteSave.then(function (savedRemotely) {
       // O IndexedDB permanece apenas como cache offline; o Supabase é a fonte principal.
       return idbSet(SNAPSHOT_KEY, snapshot).then(function () {
-        return savedRemotely;
+        return {
+          saved: savedRemotely === true,
+          remote: savedRemotely === true,
+          validationError: null
+        };
+      });
+    }).catch(function (error) {
+      if (isSnapshotRejected(error)) {
+        console.error('[BI Hub] Snapshot recusado pelo banco.', error);
+        // Não grava no cache local: o snapshot recusado não pode vencer o banco
+        // no próximo carregamento. O snapshot anterior continua no IndexedDB.
+        return { saved: false, remote: false, validationError: error };
+      }
+      console.error('[BI Hub] Falha ao salvar no Supabase.', error);
+      return idbSet(SNAPSHOT_KEY, snapshot).then(function () {
+        return { saved: false, remote: false, error: error };
       });
     });
   }

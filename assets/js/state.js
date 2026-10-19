@@ -75,6 +75,106 @@
     return normalized;
   }
 
+  // Chave usada para comparar snapshots. `operacao` identifica o processo e já é
+  // única nos arquivos atuais; normalizamos caixa/espaços para que uma mudança
+  // apenas de grafia não pareça um processo removido.
+  function normalizeRecordKey(value) {
+    return String(value == null ? '' : value).trim().toUpperCase();
+  }
+
+  function stableStringify(value) {
+    if (value === undefined) return 'null';
+    if (value === null || typeof value !== 'object') {
+      const encoded = JSON.stringify(value);
+      return encoded === undefined ? 'null' : encoded;
+    }
+    if (value instanceof Date) return JSON.stringify(value.toISOString());
+    if (Array.isArray(value)) {
+      return '[' + value.map(stableStringify).join(',') + ']';
+    }
+    const keys = Object.keys(value).sort();
+    return '{' + keys.map(function (key) {
+      return JSON.stringify(key) + ':' + stableStringify(value[key]);
+    }).join(',') + '}';
+  }
+
+  function recordFingerprint(record) {
+    const copy = {};
+    Object.keys(record || {}).forEach(function (key) {
+      if (key === '_search' || key === 'sourceRowNumber') return;
+      copy[key] = key === 'operacao' ? normalizeRecordKey(record[key]) : record[key];
+    });
+    return stableStringify(copy);
+  }
+
+  function indexRecords(records) {
+    if (!Array.isArray(records)) return { valid: false, reason: 'invalid', map: null, keys: [] };
+    const map = Object.create(null);
+    const keys = [];
+    for (let index = 0; index < records.length; index += 1) {
+      const key = normalizeRecordKey(records[index] && records[index].operacao);
+      if (!key) return { valid: false, reason: 'empty', index: index + 1, map: null, keys: [] };
+      if (Object.prototype.hasOwnProperty.call(map, key)) {
+        return { valid: false, reason: 'duplicate', key: key, map: null, keys: [] };
+      }
+      map[key] = records[index];
+      keys.push(key);
+    }
+    return { valid: true, map: map, keys: keys };
+  }
+
+  // Compara o snapshot atual (banco/cache) com o arquivo novo. A substituição
+  // só é liberada quando todos os processos atuais reaparecem no novo arquivo;
+  // valores alterados do mesmo processo são atualizações, não remoções.
+  function compareRecords(previousRecords, nextRecords) {
+    const previous = indexRecords(previousRecords || []);
+    const next = indexRecords(nextRecords || []);
+    const result = {
+      comparable: previous.valid && next.valid,
+      previousValid: previous.valid,
+      nextValid: next.valid,
+      previousReason: previous.reason || null,
+      nextReason: next.reason || null,
+      nextInvalidKey: next.key || '',
+      nextInvalidIndex: next.index || null,
+      previousCount: previous.valid ? previous.keys.length : 0,
+      nextCount: next.valid ? next.keys.length : 0,
+      added: [],
+      updated: [],
+      removed: [],
+      unchanged: [],
+      addedCount: 0,
+      updatedCount: 0,
+      removedCount: 0,
+      unchangedCount: 0,
+      isSuperset: false
+    };
+
+    if (!previous.valid || !next.valid) return result;
+
+    next.keys.forEach(function (key) {
+      if (!Object.prototype.hasOwnProperty.call(previous.map, key)) result.added.push(key);
+    });
+    previous.keys.forEach(function (key) {
+      if (!Object.prototype.hasOwnProperty.call(next.map, key)) result.removed.push(key);
+    });
+    next.keys.forEach(function (key) {
+      if (!Object.prototype.hasOwnProperty.call(previous.map, key)) return;
+      if (recordFingerprint(previous.map[key]) === recordFingerprint(next.map[key])) {
+        result.unchanged.push(key);
+      } else {
+        result.updated.push(key);
+      }
+    });
+
+    result.addedCount = result.added.length;
+    result.updatedCount = result.updated.length;
+    result.removedCount = result.removed.length;
+    result.unchangedCount = result.unchanged.length;
+    result.isSuperset = result.removedCount === 0;
+    return result;
+  }
+
   function isValidSnapshot(snapshot) {
     if (!isObject(snapshot)) return false;
     if (snapshot.version != null && snapshot.version !== SNAPSHOT_VERSION) return false;
@@ -99,6 +199,8 @@
     normalizeFilters: normalizeFilters,
     normalizeAnalistaMode: normalizeAnalistaMode,
     normalizeUiStyle: normalizeUiStyle,
-    isValidSnapshot: isValidSnapshot
+    isValidSnapshot: isValidSnapshot,
+    normalizeRecordKey: normalizeRecordKey,
+    compareRecords: compareRecords
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

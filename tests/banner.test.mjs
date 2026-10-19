@@ -210,8 +210,29 @@ async function flush(times = 12) {
 
 function createStateStub() {
   return {
+    SNAPSHOT_VERSION: 1,
     isValidSnapshot: () => false,
     normalizeFilters: (filters) => filters,
+    normalizeAnalistaMode: (mode) => (mode === 'qtd' ? 'qtd' : 'valor'),
+    normalizeUiStyle: (style) => (style === 'modern' ? 'modern' : 'classic'),
+    normalizeRecordKey: (value) => String(value == null ? '' : value).trim().toUpperCase(),
+    compareRecords: (previous, next) => {
+      const previousKeys = new Set((previous || []).map((record) => String(record.operacao).trim().toUpperCase()));
+      const nextKeys = new Set((next || []).map((record) => String(record.operacao).trim().toUpperCase()));
+      const removed = [...previousKeys].filter((key) => !nextKeys.has(key));
+      return {
+        comparable: true,
+        previousValid: true,
+        nextValid: true,
+        previousCount: previousKeys.size,
+        nextCount: nextKeys.size,
+        addedCount: [...nextKeys].filter((key) => !previousKeys.has(key)).length,
+        updatedCount: 0,
+        removedCount: removed.length,
+        unchangedCount: 0,
+        removed
+      };
+    },
     defaultFilters: () => ({
       operacao: '', ano: 'ALL', mes: 'ALL', analista: 'ALL', situacao: 'ALL',
       regDi: 'ALL', mercadoria: 'ALL', modal: 'ALL', incoterm: 'ALL', despachante: 'ALL'
