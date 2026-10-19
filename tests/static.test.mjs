@@ -300,8 +300,14 @@ test('card de status 茅 transit贸rio e s贸 aparece ap贸s carregar um arquivo', (
 });
 
 
-test('migration mant閙 um 鷑ico snapshot e valida a lista de Opera珲es', () => {
-  const migration = readFileSync(join(root, 'supabase', 'migrations', '20261019120000_excel_imports_single_latest.sql'), 'utf8');
+test('migrations espelham o hist贸rico remoto e mant锚m um 煤nico snapshot', () => {
+  const migrationsDir = join(root, 'supabase', 'migrations');
+  const baseline = readFileSync(join(migrationsDir, '20261009142126_create_excel_imports.sql'), 'utf8');
+  const migration = readFileSync(join(migrationsDir, '20261019141213_excel_imports_single_latest.sql'), 'utf8');
+
+  assert.match(baseline, /create table if not exists public\.excel_imports/);
+  assert.match(baseline, /enable row level security/);
+  assert.match(baseline, /grant select, insert on table public\.excel_imports to anon;/);
 
   assert.match(migration, /create or replace function public\.excel_imports_enforce_single_latest\(\)/);
   assert.match(migration, /security definer/);
@@ -309,4 +315,10 @@ test('migration mant閙 um 鷑ico snapshot e valida a lista de Opera珲es', () => {
   assert.match(migration, /SNAPSHOT_MISSING_RECORDS/);
   assert.match(migration, /SNAPSHOT_DUPLICATE_KEYS/);
   assert.match(migration, /delete from public\.excel_imports/);
+
+  const versions = readdirSync(migrationsDir)
+    .map((name) => name.match(/^(\d{14})_/))
+    .filter(Boolean)
+    .map((match) => match[1]);
+  assert.deepEqual(versions, ['20261009142126', '20261019141213']);
 });
