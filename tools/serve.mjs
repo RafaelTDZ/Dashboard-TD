@@ -39,7 +39,14 @@ const server = createServer(async (request, response) => {
 
   try {
     const body = await readFile(file);
-    response.writeHead(200, { 'Content-Type': contentTypes[extname(file).toLowerCase()] || 'application/octet-stream' });
+    response.writeHead(200, {
+      'Content-Type': contentTypes[extname(file).toLowerCase()] || 'application/octet-stream',
+      // Servidor de desenvolvimento: nunca entregar um asset antigo (ou
+      // truncado, se o arquivo estava sendo substituído no momento) a partir
+      // do cache do navegador. Sem isso, trocar vendor/xlsx.full.min.js
+      // durante a sessão deixava o dashboard carregando a versão quebrada.
+      'Cache-Control': 'no-store, must-revalidate'
+    });
     response.end(body);
   } catch (error) {
     const status = error && error.code === 'ENOENT' ? 404 : 500;

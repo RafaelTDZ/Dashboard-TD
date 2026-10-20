@@ -8,6 +8,12 @@
   const DB_STORE = 'kv';
   const SNAPSHOT_KEY = 'snapshot';
   const DEMO_FILE = 'Nenhum arquivo carregado';
+  // Versão da biblioteca SheetJS vendorizada. Entra na URL do <script> para
+  // invalidar o cache do navegador quando a lib for trocada: a query string
+  // muda, o navegador baixa o arquivo de novo em vez de reaproveitar uma
+  // versão antiga (ou truncada) que ficou no cache. Mantida em sincronia com
+  // vendor/manifest.json pelo teste tests/vendor.test.mjs.
+  const XLSX_LIB_VERSION = '0.20.3';
   const REQUIRED_ELEMENT_IDS = [
     'tab-btn-dashboard', 'tab-btn-data', 'tab-btn-integration',
     'tab-dashboard', 'tab-data', 'tab-integration',
@@ -1087,21 +1093,38 @@
     global.UI.toast(global.UI.formatNumber(rows.length) + ' registro(s) exportado(s) no CSV.', 'success', 'Exportação concluída');
   }
 
-  function ensureXlsxLoaded() {
-    if (typeof global.XLSX !== 'undefined') return Promise.resolve(global.XLSX);
-    if (xlsxLoadPromise) return xlsxLoadPromise;
-    xlsxLoadPromise = new Promise(function (resolve, reject) {
+  // Carrega a biblioteca SheetJS sob demanda. A URL leva a versão da lib
+  // (?v=) para nunca reaproveitar uma resposta antiga do cache do navegador;
+  // no retry usa um carimbo de tempo para escapar de uma resposta truncada
+  // que tenha ficado guardada.
+  function loadXlsxLibrary(forceReload) {
+    return new Promise(function (resolve, reject) {
       var script = document.createElement('script');
-      script.src = 'vendor/xlsx.full.min.js';
+      var url = 'vendor/xlsx.full.min.js?v=' + encodeURIComponent(XLSX_LIB_VERSION);
+      if (forceReload) url += '&t=' + Date.now();
+      script.src = url;
       script.onload = function () {
         if (typeof global.XLSX !== 'undefined') resolve(global.XLSX);
         else reject(new Error('A biblioteca XLSX foi carregada, mas não ficou disponível.'));
       };
-      script.onerror = function () { reject(new Error('Não foi possível carregar a biblioteca de importação Excel.')); };
+      script.onerror = function () {
+        reject(new Error('Não foi possível carregar a biblioteca de importação Excel (vendor/xlsx.full.min.js). ' +
+          'Verifique a conexão e recarregue a página com Ctrl+Shift+R antes de tentar de novo.'));
+      };
       document.head.appendChild(script);
-    }).catch(function (error) {
-      xlsxLoadPromise = null;
-      throw error;
+    });
+  }
+
+  function ensureXlsxLoaded() {
+    if (typeof global.XLSX !== 'undefined') return Promise.resolve(global.XLSX);
+    if (xlsxLoadPromise) return xlsxLoadPromise;
+    xlsxLoadPromise = loadXlsxLibrary(false).catch(function (error) {
+      // Uma segunda tentativa sem cache: pode ser uma resposta truncada que o
+      // navegador guardou enquanto o arquivo era substituído.
+      return loadXlsxLibrary(true).catch(function () {
+        xlsxLoadPromise = null;
+        throw error;
+      });
     });
     return xlsxLoadPromise;
   }

@@ -98,6 +98,23 @@ test('a versão embutida do SheetJS é >= 0.20.2 e bate com o manifesto', () => 
   assert.match(library.origin, /xlsx-0\.20\./);
 });
 
+test('a versão do SheetJS usada na URL de cache-busting bate com o manifesto', () => {
+  // O app.js carrega a lib sob demanda com ?v=<versão> na URL. Se a versão
+  // do manifesto mudar e a constante do app.js não, o navegador passa a
+  // reaproveitar do cache a versão antiga (e possivelmente truncada) da lib.
+  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+  const declared = app.match(/XLSX_LIB_VERSION\s*=\s*['"]([^'"]+)['"]/);
+  assert.ok(declared, 'app.js precisa declarar XLSX_LIB_VERSION');
+
+  const library = libraryNamed(/xlsx\.full\.min\.js$/);
+  assert.ok(library, 'o SheetJS precisa estar no manifesto');
+  assert.equal(declared[1], library.version, 'XLSX_LIB_VERSION precisa acompanhar a versão do manifesto');
+
+  // E a URL precisa realmente usar a constante (não uma string fixa).
+  assert.match(app, /vendor\/xlsx\.full\.min\.js\?v=/);
+  assert.match(app, /XLSX_LIB_VERSION/);
+});
+
 test('o sha256 de cada entrada do manifesto confere com o arquivo em disco', () => {
   for (const library of manifest.libraries) {
     const full = join(root, library.entry);

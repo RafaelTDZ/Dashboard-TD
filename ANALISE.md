@@ -32,9 +32,9 @@
 |---|---:|---:|---:|---:|
 | 🔴 Alto | 4 | 4 | 0 | 0 |
 | 🟡 Médio | 8 | 8 | 0 | 0 |
-| 🟢 Baixo | 16 | 14 | 0 | 2 (B10, B14) + B16 |
+| 🟢 Baixo | 17 | 15 | 0 | 2 (B10, B14) + B16 |
 | 🧪 Testes | 5 | 5 | 0 | 0 |
-| **Total** | **33** | **31** | **0** | **2** |
+| **Total** | **34** | **32** | **0** | **2** |
 
 > **Pendentes e por quê**
 > - **B10** (compilar o Tailwind) — decisão de produto D3; risco de regressão visual maior que
@@ -716,6 +716,50 @@ amostra do Google Fonts, que não expõe um número de versão para este subset)
 
 ---
 
+### [x] B17 — Servidor local sem `Cache-Control`: o navegador servia asset obsoleto/truncado
+
+| | |
+|---|---|
+| **Arquivos** | `tools/serve.mjs:40-48` · `assets/js/app.js` (`ensureXlsxLoaded`) |
+| **Impacto** | 🔴 erro "Não foi possível carregar a biblioteca de importação Excel" ao importar |
+| **Esforço** | 🟢 ~30 min |
+
+**Diagnóstico**
+
+O `tools/serve.mjs` respondia **sem nenhum `Cache-Control`**. O Chrome aplica freshness
+heurística nesse caso, então um asset pode ser reaproveitado do cache sem revalidação.
+
+Durante a troca do SheetJS (0.18.5 → 0.20.3) o arquivo foi substituído em caliente. Quem
+cliquei em "Carregar Excel" nessa janela recebeu uma resposta **truncada/parcial** — que o
+navegador guardou no cache. Como a URL era sempre a mesma (`vendor/xlsx.full.min.js`, sem
+query string), todas as tentativas seguintes reusavam a cópia quebrada e o `script.onerror`
+disparava a cada vez.
+
+Confirmado: o arquivo em disco estava **íntegro** (951.904 bytes, terminação correta) e havia
+**só uma cópia** do projeto na máquina — ou seja, não era arquivo faltando nem corruption.
+
+**Correção**
+
+1. `tools/serve.mjs` agora envia `Cache-Control: no-store, must-revalidate` — o servidor de
+   desenvolvimento nunca entrega asset antigo.
+2. `assets/js/app.js` carrega a lib com **cache-busting**: `vendor/xlsx.full.min.js?v=0.20.3`
+   (a query muda quando a lib muda, então o navegador baixa o arquivo de novo).
+3. Uma **tentativa única** de retry com carimbo de tempo (`&t=…`) cobre uma resposta
+   truncada que tenha ficado guardada.
+4. A mensagem de erro passou a ser **acionável** (pede Ctrl+Shift+R) em vez de um erro seco.
+5. `tests/vendor.test.mjs` garante que `XLSX_LIB_VERSION` no `app.js` acompanha a versão do
+   `vendor/manifest.json` — se alguém trocar a lib e esquecer de atualizar a constante, o
+   teste quebra.
+
+**Verificação**
+
+- [x] `HEAD vendor/xlsx.full.min.js?v=0.20.3` → 200 com `Cache-Control: no-store`
+- [x] Importação real do arquivo do usuário (1.944 processos) **sem erro**
+- [x] Banco atualizado para 1.944 registros (KLV602/KLV603 incluídos)
+- [x] `node --test` → **104 testes, 100% verde**
+
+---
+
 ## 🧪 LACUNAS DE TESTE
 
 A suíte é incomumente (55 testes) para um dashboard estático — mas **por isso o bug A2 passou**:
@@ -826,6 +870,7 @@ para fechar a cobertura sobre o código já estável.
 | 20/10/2026 | Onda 2 | A2(JS), A3, B1, B2, B4, B5, B6, B9, B13, M1, M5 | ✅ concluído | agente APPJS | Busca sem acento; payload **−25,8%**; fingerprint normalizado; CSV numérico sem aspa |
 | 20/10/2026 | Onda 3 | T1–T5 | ✅ concluído | agente TESTS | **64 → 103 testes, 100% verde** (2,4 s). Criados `hardening/charts/ui/vendor.test.mjs`; card visível e busca sem acento validados no browser |
 | 20/10/2026 | Ajuste final | B15 | ✅ concluído | — | `analytics.js` só injeta onde o script existe → console local com **0 erros**; CSP com `worker-src 'self' blob:` |
+| 20/10/2026 | Ajuste final | B17 | ✅ concluído | — | `tools/serve.mjs` envia `Cache-Control: no-store`; lib XLSX carregada com cache-busting (`?v=`) + retry + mensagem acionável. Importação real do arquivo do usuário (1.944 processos) **sem erro**; banco atualizado |
 | | | | | | |
 | | | | | | |
 | | | | | | |
