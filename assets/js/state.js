@@ -98,11 +98,26 @@
     }).join(',') + '}';
   }
 
+  // Valor "vazio" para efeito de comparação: null, '' e arrays vazios não
+  // mudam o resultado da comparação e apenas inflam o payload. A mesma regra
+  // vale em app.js (toPersistedRecord) — as duas precisam descartar
+  // exatamente os mesmos campos, senão toda linha vira "atualizada".
+  function isEmptyValue(value) {
+    if (value === null || value === undefined || value === '') return true;
+    return Array.isArray(value) && !value.length;
+  }
+
+  // Impressão digital do registro, usada para saber se um processo mudou.
+  // Ignora o índice derivado (_search), a linha de origem (sourceRowNumber) e
+  // os campos vazios — assim a linha antiga do banco (que ainda tem esses
+  // campos) e o registro novo do arquivo continuam sendo comparáveis (B6).
   function recordFingerprint(record) {
     const copy = {};
     Object.keys(record || {}).forEach(function (key) {
       if (key === '_search' || key === 'sourceRowNumber') return;
-      copy[key] = key === 'operacao' ? normalizeRecordKey(record[key]) : record[key];
+      const value = record[key];
+      if (isEmptyValue(value)) return;
+      copy[key] = key === 'operacao' ? normalizeRecordKey(value) : value;
     });
     return stableStringify(copy);
   }
@@ -147,6 +162,9 @@
       updatedCount: 0,
       removedCount: 0,
       unchangedCount: 0,
+      // `isSuperset` faz parte da API pública de compareRecords (usada pelos
+      // testes e por integrações): indica que o arquivo novo contém todos os
+      // processos do snapshot anterior.
       isSuperset: false
     };
 

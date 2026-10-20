@@ -155,10 +155,6 @@
     analistaMode = mode === 'qtd' ? 'qtd' : 'valor';
   }
 
-  function getAnalistaMode() {
-    return analistaMode;
-  }
-
   function destroyAll() {
     Object.keys(charts).forEach(function (key) {
       if (charts[key] && typeof charts[key].destroy === 'function') charts[key].destroy();
@@ -628,7 +624,10 @@
     const availableYears = Array.from(new Set(scheduleRows.map(function (item) { return Number(item.monthlyReference.year); }))).sort(function (a, b) { return a - b; });
     let targetYear = null;
     if (usesScheduleDate && requestedYear !== 'ALL') {
-      targetYear = requestedYear === 'LATEST' ? availableYears[availableYears.length - 1] : Number(requestedYear);
+      // O seletor de ano só oferece "Todos os anos" e anos concretos — não
+      // existe "LATEST". Se o ano pedido não existir nos dados, usa o mais
+      // recente.
+      targetYear = Number(requestedYear);
       if (!Number.isInteger(targetYear) || availableYears.indexOf(targetYear) === -1) targetYear = availableYears[availableYears.length - 1];
     }
     const monthlyRows = usesScheduleDate
@@ -722,5 +721,4 @@
 
   global.Charts = { init: init, render: render, setStyle: setStyle };
   global.Charts.setAnalistaMode = setAnalistaMode;
-  global.Charts.getAnalistaMode = getAnalistaMode;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -119,6 +119,30 @@ test('rejeita textos numéricos puros em vez de interpretar como data', () => {
   assert.equal(ETL.parseExcelDate('20260930'), null);
 });
 
+test('parseExcelDate só aceita seriais do Excel em faixa plausível (B8)', () => {
+  // Uma célula numérica que não é data (um código, por exemplo) não pode
+  // virar 13/06/1905: 2025 está fora da faixa plausível de serial.
+  assert.equal(ETL.parseExcelDate(2025), null);
+  assert.equal(ETL.parseExcelDate(0), null);
+  assert.equal(ETL.parseExcelDate(19999), null);
+  assert.equal(ETL.parseExcelDate(80001), null);
+  assert.equal(ETL.parseExcelDate(NaN), null);
+  assert.equal(ETL.parseExcelDate(Infinity), null);
+
+  // 45.660 é um serial válido: 03/01/2025.
+  const date = ETL.parseExcelDate(45660);
+  assert.ok(date && typeof date.getFullYear === 'function', 'o serial dentro da faixa precisa virar data');
+  assert.equal(date.getFullYear(), 2025);
+  assert.equal(date.getMonth() + 1, 1);
+  assert.equal(date.getDate(), 3);
+
+  // A faixa é explícita no código (20.000 ≈ 1954, 80.000 ≈ 2119).
+  const source = readFileSync(new URL('../assets/js/etl.js', import.meta.url), 'utf8');
+  assert.match(source, /const EXCEL_SERIAL_MIN = 20000;/);
+  assert.match(source, /const EXCEL_SERIAL_MAX = 80000;/);
+  assert.match(source, /if \(wholeDays < EXCEL_SERIAL_MIN \|\| wholeDays > EXCEL_SERIAL_MAX\) return null;/);
+});
+
 test('lê Pack Month como serial Excel e não trata Container como LCL/FCL', () => {
   assert.equal(ETL.monthFromValue(45292), 1);
   assert.equal(ETL.monthFromValue(3), 3);
@@ -295,6 +319,26 @@ test('rejeita cabeçalho sem campos operacionais reconhecidos', () => {
 test('escapa conteúdo HTML externo antes de renderização', () => {
   assert.equal(UI.escapeHtml('<img src=x onerror=alert(1)>'), '&lt;img src=x onerror=alert(1)&gt;');
   assert.equal(UI.escapeHtml('" & \' < >'), '&quot; &amp; &#39; &lt; &gt;');
+});
+
+test('a planilha real continua sendo importada pelo SheetJS vendorizado (M4)', () => {
+  // O bundle vendorizado (0.20.3) precisa ler a planilha de verdade: é o
+  // checklist do item M4 do ANALISE.md.
+  const bytes = readFileSync(new URL('../data/Importaes-63cc10.xlsx', import.meta.url));
+  const result = ETL.parseWorkbook(bytes);
+
+  assert.equal(result.sheetName, '!Importações');
+  assert.equal(result.headerRowNumber, 1);
+  assert.equal(result.totalRows, 1898);
+  assert.equal(result.ignoredRows, 0);
+  assert.equal(result.commentCount, 3);
+  assert.equal(result.mapping.unmapped.length, 0, 'nenhuma coluna pode ficar sem mapeamento');
+  // CNY continua preservado (sem conversão para USD).
+  assert.equal(result.currencyCounts.USD, 1873);
+  assert.equal(result.currencyCounts.CNY, 25);
+  assert.equal(result.records[0].operacao, 'BRP018 - URU-0006-24');
+  assert.equal(result.records[0].mercadoria, 'Ácido Fosfórico');
+  assert.equal(result.records[0].valorMoeda, 'USD');
 });
 
 test('valida snapshots e normaliza filtros restaurados', () => {

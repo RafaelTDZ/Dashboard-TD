@@ -320,5 +320,57 @@ test('migrations espelham o histórico remoto e mantêm um único snapshot', () 
     .map((name) => name.match(/^(\d{14})_/))
     .filter(Boolean)
     .map((match) => match[1]);
-  assert.deepEqual(versions, ['20261009142126', '20261019141213']);
+  assert.deepEqual(versions, ['20261009142126', '20261019141213', '20261020120000']);
+});
+
+test('migração de endurecimento fecha o bypass de privilégios e o DELETE sem WHERE', () => {
+  // A1 — o papel `anon` não pode mais truncar a tabela (a RLS não cobre TRUNCATE).
+  const harden = readFileSync(join(root, 'supabase', 'migrations', '20261020120000_harden_excel_imports.sql'), 'utf8');
+  assert.match(harden, /revoke all on table public\.excel_imports from anon, authenticated;/);
+  assert.match(harden, /grant select, insert on table public\.excel_imports to anon;/);
+
+  // A4 (REGRESSÃO CRÍTICA) — o trigger precisa de WHERE no DELETE.
+  // O papel `authenticator` do projeto carrega `safeupdate`
+  // (session_preload_libraries = supautils, safeupdate) e recusa qualquer
+  // DELETE sem cláusula WHERE. O `delete from public.excel_imports;` sem WHERE
+  // (migration 20261019141213) fazia TODA importação falhar em produção com
+  // "DELETE requires a WHERE clause" (SQLSTATE 21000). A migration nova
+  // corrige isso com `where id in (select id from public.excel_imports)`,
+  // que apaga exatamente as mesmas linhas.
+  // Os comentários são removidos antes da varredura: o SQL documenta o
+  // comando antigo no texto e não pode ser confundido com código executável.
+  const sqlCode = (source) => source
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split('\n')
+    .map((line) => line.replace(/--.*$/, ''))
+    .join('\n');
+  const deletesWithoutWhere = (source) => [...sqlCode(source).matchAll(/delete\s+from\s+public\.excel_imports([\s\S]*?);/gi)]
+    .filter((match) => !/\bwhere\b/i.test(match[1]));
+  assert.equal(deletesWithoutWhere(harden).length, 0, 'a migration nova não pode ter DELETE sem WHERE');
+  assert.match(harden, /delete from public\.excel_imports\s+where id in \(select id from public\.excel_imports\);/i);
+
+  // A migração antiga é a que tem o bug — e a nova é a que corrige.
+  const buggy = readFileSync(join(root, 'supabase', 'migrations', '20261019141213_excel_imports_single_latest.sql'), 'utf8');
+  assert.equal(deletesWithoutWhere(buggy).length, 1, 'a migration antiga tem o DELETE sem WHERE (o bug corrigido depois)');
+  assert.match(buggy, /delete from public\.excel_imports;/);
+
+  // M2 — os timestamps são do servidor; o que o cliente envia é ignorado.
+  assert.match(harden, /new\.created_at := now\(\);/);
+  assert.match(harden, /new\.updated_at := now\(\);/);
+
+  // M3 — a invariante "uma única linha" não depende só do trigger.
+  assert.match(harden, /create unique index if not exists excel_imports_singleton\s+on public\.excel_imports \(\(true\)\);/);
+  assert.match(harden, /add constraint excel_imports_records_is_array\s+check \(jsonb_typeof\(records\) = 'array' and jsonb_array_length\(records\) > 0\);/);
+
+  // M6 — a função SECURITY DEFINER sai do alcance do cliente.
+  assert.match(harden, /revoke execute on function public\.excel_imports_enforce_single_latest\(\)\s+from public, anon, authenticated;/);
+
+  // M8 — search_path restrito (a versão antiga usava `public, pg_temp`).
+  assert.match(harden, /set search_path = ''/);
+  assert.doesNotMatch(harden, /search_path = public, pg_temp/);
+
+  // B7 — `updated_at` passa a ser mantida por um trigger de UPDATE.
+  assert.match(harden, /create or replace function public\.touch_updated_at\(\)/);
+  assert.match(harden, /new\.updated_at := now\(\);/);
+  assert.match(harden, /create trigger excel_imports_touch_updated_at\s+before update on public\.excel_imports/);
 });

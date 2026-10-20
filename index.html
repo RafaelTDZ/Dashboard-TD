@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BI Integration Hub &amp; Dashboard - Gestão de Importações</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563eb'/%3E%3Cpath d='M8 21l5-6 4 3 7-9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <!-- Content-Security-Policy (M7): tudo é local (vendor/ + assets/), exceto o
+         cliente REST do Supabase. 'unsafe-inline' no script-src é obrigatório
+         por causa do script inline do tailwind.config abaixo; 'unsafe-eval'
+         cobre o compilador JIT do Tailwind Play CDN. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self' https://*.supabase.co; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
     <script src="vendor/tailwind.js"></script>
     <script>
         tailwind.config = {
@@ -103,6 +108,13 @@
 
     <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
 
+        <!-- Resumo do dataset: sempre visível (o #status-banner é transitório). -->
+        <div id="dataset-summary" class="ui-dataset-summary" role="status" aria-live="polite">
+            <span class="ui-dataset-summary-icon"><i class="fa-solid fa-database" aria-hidden="true"></i></span>
+            <span id="dataset-summary-text" class="ui-dataset-summary-text">Nenhum arquivo carregado. Clique em <strong>Carregar Excel Atualizado</strong> para selecionar a planilha <strong>!Importações.xlsx</strong>.</span>
+            <span id="dataset-summary-time" class="ui-dataset-summary-time">Aguardando arquivo</span>
+        </div>
+
         <!-- Card transitório: começa escondido e só aparece depois que um arquivo é carregado. -->
         <div id="status-banner" hidden class="ui-status bg-brand-900/30 border border-brand-500/30 rounded-xl p-3 px-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300" aria-live="polite">
             <div class="flex items-center gap-2">
@@ -185,17 +197,16 @@
                         <option value="ALL">Todos os Analistas</option>
                     </select>
 
-                    <label for="monthly-year" class="sr-only">Filtrar todo o dashboard por ano</label>
                     <select id="monthly-year" aria-label="Filtrar todo o dashboard por ano" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
                         <option value="ALL">Todos os anos</option>
                     </select>
 
                     <div id="filter-mes-field" class="ui-month-filter">
-                        <button type="button" id="filter-mes-toggle" aria-label="Filtrar por mês" aria-haspopup="true" aria-expanded="false" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
+                        <button type="button" id="filter-mes-toggle" aria-label="Filtrar por mês" aria-haspopup="true" aria-controls="filter-mes-menu" aria-expanded="false" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-brand-500">
                             <span id="filter-mes-label" class="ui-month-label">Todos os Meses</span>
                             <i class="fa-solid fa-chevron-down ui-month-caret" aria-hidden="true"></i>
                         </button>
-                        <div id="filter-mes-menu" class="ui-month-menu" hidden>
+                        <div id="filter-mes-menu" role="group" aria-label="Meses para filtrar" class="ui-month-menu" hidden>
                             <label class="ui-month-option ui-month-option-all">
                                 <input type="checkbox" id="filter-mes-all">
                                 <span>Todos os Meses</span>

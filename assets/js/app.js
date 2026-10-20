@@ -13,6 +13,7 @@
     'tab-dashboard', 'tab-data', 'tab-integration',
     'style-switcher', 'style-option-modern', 'style-option-classic',
     'banner-text', 'last-update-time', 'last-read-header',
+    'dataset-summary', 'dataset-summary-text', 'dataset-summary-time',
     'kpi-volume', 'kpi-volume-hint', 'kpi-processos', 'kpi-peso', 'kpi-ticket', 'kpi-conclusao', 'kpi-sla', 'kpi-sla-hint',
     'filter-operacao', 'filter-mes-toggle', 'filter-mes-label', 'filter-mes-menu', 'filter-mes-all', 'filter-mes-list',
     'filter-analista', 'filter-situacao', 'filter-reg-di',
@@ -45,6 +46,8 @@
   let xlsxLoadPromise = null;
   let persistenceWarningShown = false;
   let pendingSnapshotValidations = 0;
+  let persistPending = false;
+  let persistRetryCount = 0;
 
   function cacheElements() {
     REQUIRED_ELEMENT_IDS.forEach(function (id) {
@@ -52,6 +55,56 @@
     });
     const missing = REQUIRED_ELEMENT_IDS.filter(function (id) { return !els[id]; });
     if (missing.length) throw new Error('Estrutura do dashboard incompleta. Elementos ausentes: ' + missing.join(', '));
+  }
+
+  // Normaliza texto para a busca: sem acentos e em minúsculas. Só o índice
+  // (_search) e as comparações usam essa forma — o texto exibido na tabela e
+  // exportado no CSV continua com os acentos.
+  function normalizeSearchText(value) {
+    return String(value == null ? '' : value)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  }
+
+  // Valor "vazio" para efeito de persistência e de comparação de snapshots:
+  // null, '' e arrays vazios não mudam o resultado e apenas inflam o payload.
+  // A mesma regra vale em state.js (recordFingerprint) — as duas precisam
+  // descartar exatamente os mesmos campos.
+  function isEmptyPersistedValue(value) {
+    if (value === null || value === undefined || value === '') return true;
+    return Array.isArray(value) && !value.length;
+  }
+
+  // Cópia enxuta do registro para o que é persistido (Supabase e cache local):
+  // sem o índice derivado (_search), sem campos vazios e sem arrays vazios.
+  // Os dados em memória (state.dataset) continuam completos — a busca depende
+  // do _search, que é recalculado por prepareRecord() ao restaurar.
+  function toPersistedRecord(record) {
+    var copy = {};
+    Object.keys(record || {}).forEach(function (key) {
+      if (key === '_search') return;
+      var value = record[key];
+      if (isEmptyPersistedValue(value)) return;
+      copy[key] = value;
+    });
+    return copy;
+  }
+
+  // Monta o índice de busca do registro (normalizado, sem acentos). Fica em
+  // uma função própria porque o índice precisa ser recalculado depois da
+  // canonicalização dos campos (ver B1): canonicalizar depois de indexar
+  // deixaria a busca procurando valores antigos.
+  function buildSearchIndex(record) {
+    record._search = normalizeSearchText([
+      record.operacao, record.analista, record.mercadoria, record.situacao,
+      record.origem, record.destino, record.incoterm, record.regDi, record.despachante,
+      record.eta, record.numeroDi, record.protocoloDi, record.transportadora,
+      record.exportador, record.agente, record.container, record.modalidade, record.ric,
+      record.valorOriginal, record.valorMoeda,
+      record.comments.map(function (comment) { return [comment.reference, comment.text, comment.author, comment.date].join(' '); }).join(' ')
+    ].join(' '));
+    return record;
   }
 
   function prepareRecord(record) {
@@ -139,14 +192,7 @@
       return comment && typeof comment === 'object' && (comment.text || comment.author || comment.date || comment.reference);
     }) : [];
     record.sourceRowNumber = Number.isFinite(Number(record.sourceRowNumber)) ? Number(record.sourceRowNumber) : null;
-    record._search = [
-      record.operacao, record.analista, record.mercadoria, record.situacao,
-      record.origem, record.destino, record.incoterm, record.regDi, record.despachante,
-      record.eta, record.numeroDi, record.protocoloDi, record.transportadora,
-      record.exportador, record.agente, record.container, record.modalidade, record.ric,
-      record.valorOriginal, record.valorMoeda,
-      record.comments.map(function (comment) { return [comment.reference, comment.text, comment.author, comment.date].join(' '); }).join(' ')
-    ].join(' ').toLowerCase();
+    buildSearchIndex(record);
     return record;
   }
 
@@ -164,6 +210,9 @@
   function applySnapshotToState(snapshot) {
     state.dataset = snapshot.records.map(prepareRecord);
     canonicalizeDataset(state.dataset);
+    // A canonicalização altera os campos indexados: o _search é refeito depois
+    // dela para que a busca use sempre os valores finais (B1).
+    state.dataset.forEach(buildSearchIndex);
     state.meta = {
       name: snapshot.meta.name,
       sheetName: snapshot.meta.sheetName,
@@ -256,7 +305,11 @@
       if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
       var tabs = ['dashboard', 'data', 'integration'];
-      var active = tabs.indexOf(document.querySelector('.tablist [aria-selected="true"]').dataset.tab);
+      // Guarda: sem nenhum aba selecionado não há posição atual para mover.
+      var selected = document.querySelector('.tablist [aria-selected="true"]');
+      if (!selected || !selected.dataset) return;
+      var active = tabs.indexOf(selected.dataset.tab);
+      if (active === -1) return;
       var next = event.key === 'Home' ? 0 : (event.key === 'End' ? tabs.length - 1 : (event.key === 'ArrowRight' ? (active + 1) % tabs.length : (active + tabs.length - 1) % tabs.length));
       switchTab(tabs[next]);
       document.getElementById('tab-btn-' + tabs[next]).focus();
@@ -657,10 +710,14 @@
     return Number.isInteger(year) && year >= 1900 && year <= 2100 ? year : null;
   }
 
-  function matchesFilters(item, selectedYear) {
+  function matchesFilters(item, selectedYear, operacaoFilter, searchQuery) {
     var filters = state.filters;
+    // Os filtros de operação e de busca comparam a forma normalizada
+    // (sem acentos): digitar "acido" encontra "Ácido" (A3).
+    var normalizedOperacao = operacaoFilter != null ? operacaoFilter : normalizeSearchText(filters.operacao);
+    var normalizedSearch = searchQuery != null ? searchQuery : normalizeSearchText(state.search);
     if (filters.ano !== 'ALL' && selectedYear != null && getMonthlyReferenceYear(item) !== selectedYear) return false;
-    if (filters.operacao && String(item.operacao).toLowerCase().indexOf(filters.operacao.toLowerCase()) === -1) return false;
+    if (normalizedOperacao && normalizeSearchText(item.operacao).indexOf(normalizedOperacao) === -1) return false;
     if (getMonthFilterMode() === 'none') return false;
     var selectedMonths = getSelectedMonths();
     if (selectedMonths.length && selectedMonths.indexOf(String(getMonthlyReferenceMonth(item))) === -1) return false;
@@ -684,13 +741,19 @@
     }
     if (filters.incoterm !== 'ALL' && item.incoterm !== filters.incoterm) return false;
     if (filters.despachante !== 'ALL' && item.despachante !== filters.despachante) return false;
-    if (state.search && item._search.indexOf(state.search.toLowerCase()) === -1) return false;
+    if (normalizedSearch && String(item._search || '').indexOf(normalizedSearch) === -1) return false;
     return true;
   }
 
   function getVisibleData() {
     var selectedYear = getSelectedYear();
-    return state.dataset.filter(function (item) { return matchesFilters(item, selectedYear); });
+    // Normaliza uma única vez: a busca e o filtro são aplicados a cada
+    // registro do dataset.
+    var operacaoFilter = normalizeSearchText(state.filters.operacao);
+    var searchQuery = normalizeSearchText(state.search);
+    return state.dataset.filter(function (item) {
+      return matchesFilters(item, selectedYear, operacaoFilter, searchQuery);
+    });
   }
 
   function sortValue(item, key) {
@@ -741,6 +804,21 @@
     renderTable();
   }
 
+  // O card #dataset-summary é persistente: mostra o que está carregado (ou o
+  // que fazer para carregar). O #status-banner é transitório e guarda apenas
+  // mensagens de importação/erro — por isso updateBanner() NÃO escreve nele.
+  var lastDatasetSummaryHtml = '';
+
+  function setDatasetSummary(html) {
+    var element = els['dataset-summary-text'];
+    if (!element) return;
+    // O card é uma região ao vivo (aria-live): reescrever o mesmo texto a cada
+    // refresh() faria o leitor de tela repetir a leitura a cada tecla digitada.
+    if (lastDatasetSummaryHtml === html) return;
+    lastDatasetSummaryHtml = html;
+    element.innerHTML = html;
+  }
+
   function updateBanner() {
     var meta = state.meta || {};
     var lastReadText = state.isDemo || !state.dataset.length
@@ -748,17 +826,17 @@
       : 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
     els['last-read-header'].innerText = lastReadText;
     if (state.isDemo || !state.dataset.length) {
-      els['banner-text'].innerHTML = 'Nenhum arquivo carregado. Clique em <strong>Carregar Excel Atualizado</strong> para selecionar a planilha <strong>!Importações.xlsx</strong>.';
-      els['last-update-time'].innerText = 'Aguardando arquivo';
+      setDatasetSummary('Nenhum arquivo carregado. Clique em <strong>Carregar Excel Atualizado</strong> para selecionar a planilha <strong>!Importações.xlsx</strong>.');
+      els['dataset-summary-time'].innerText = 'Aguardando arquivo';
       return;
     }
     var ignoredText = meta.ignoredRows ? ' &bull; ' + global.UI.formatNumber(meta.ignoredRows) + ' linha(s) ignorada(s)' : '';
     var commentsText = meta.commentCount ? ' &bull; ' + global.UI.formatNumber(meta.commentCount) + ' comentário(s)' : '';
-    els['banner-text'].innerHTML = '<strong>' + global.UI.escapeHtml(meta.name) + '</strong>' +
+    setDatasetSummary('<strong>' + global.UI.escapeHtml(meta.name) + '</strong>' +
       ' &bull; Guia ' + global.UI.escapeHtml(meta.sheetName || '—') +
       ' &bull; ' + global.UI.formatNumber(meta.rowCount || state.dataset.length) + ' processos' +
-      (meta.headerRow ? ' &bull; Cabeçalho na linha ' + meta.headerRow : '') + ignoredText + commentsText;
-    els['last-update-time'].innerText = 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
+      (meta.headerRow ? ' &bull; Cabeçalho na linha ' + meta.headerRow : '') + ignoredText + commentsText);
+    els['dataset-summary-time'].innerText = 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
   }
 
   var STATUS_BANNER_VISIBLE_MS = 8000;
@@ -769,8 +847,10 @@
     if (banner._fadeTimer) { clearTimeout(banner._fadeTimer); banner._fadeTimer = null; }
   }
 
-  // O card de status é transitório: nunca é revelado por refresh(), restoreState()
-  // ou mudança de filtro. Só o carregamento de um arquivo chama showTransientUpdateBanner().
+  // O banner é transitório: nunca é revelado por refresh(), restoreState() ou
+  // mudança de filtro. Só o carregamento de um arquivo chama
+  // showTransientUpdateBanner() e o erro de inicialização chama
+  // showStatusBannerError(). O resumo persistente fica em #dataset-summary.
   function hideStatusBanner() {
     var banner = document.getElementById('status-banner');
     if (!banner) return;
@@ -783,8 +863,16 @@
     var banner = document.getElementById('status-banner');
     if (!banner) return;
     clearStatusBannerTimers(banner);
-    banner.hidden = false;
     banner.classList.remove('is-fading-out');
+    // Confirmação curta no banner transitório. O card persistente
+    // (#dataset-summary) não é tocado aqui.
+    if (els['banner-text']) els['banner-text'].textContent = 'Dataset atualizado.';
+    if (els['last-update-time']) {
+      els['last-update-time'].innerText = state.meta && state.meta.loadedAt
+        ? 'Última leitura: ' + global.UI.formatDateTime(state.meta.loadedAt)
+        : '';
+    }
+    banner.hidden = false;
     banner._hideTimer = setTimeout(function () {
       banner._hideTimer = null;
       banner.classList.add('is-fading-out');
@@ -795,15 +883,16 @@
     }, STATUS_BANNER_VISIBLE_MS);
   }
 
-  // Falhas fatais de inicialização precisam ficar visíveis (sem timer), mas sem
-  // destruir os filhos do card usados por updateBanner().
+  // Falhas fatais de inicialização precisam ficar visíveis (sem timer). O
+  // erro vai para o banner transitório; o card persistente continua
+  // intacto, então um refresh() posterior não apaga a mensagem (B3).
   function showStatusBannerError(message) {
     var banner = document.getElementById('status-banner');
     if (!banner) return;
     clearStatusBannerTimers(banner);
     banner.classList.remove('is-fading-out');
-    var text = banner.querySelector('#banner-text');
-    if (text) text.textContent = message;
+    if (els['banner-text']) els['banner-text'].textContent = message;
+    if (els['last-update-time']) els['last-update-time'].innerText = 'Falha na inicialização';
     banner.hidden = false;
   }
 
@@ -887,9 +976,21 @@
     }
 
     els['table-body'].innerHTML = html;
+    // O total do dataset aparece junto do total filtrado: o filtro de ano
+    // padrão esconde parte dos dados e o usuário precisa enxergar isso (B9).
+    var datasetTotal = state.dataset.length;
+    var filteredOut = datasetTotal - total;
     els['table-count'].innerText = total
-      ? 'Exibindo ' + global.UI.formatNumber(start + 1) + '–' + global.UI.formatNumber(Math.min(start + state.pageSize, total)) + ' de ' + global.UI.formatNumber(total) + ' registro(s)'
+      ? 'Exibindo ' + global.UI.formatNumber(start + 1) + '–' + global.UI.formatNumber(Math.min(start + state.pageSize, total)) +
+        ' de ' + global.UI.formatNumber(total) + (filteredOut > 0 ? ' de ' + global.UI.formatNumber(datasetTotal) : '') + ' registro(s)'
       : 'Nenhum registro';
+    els['table-count'].title = total
+      ? (filteredOut > 0
+        ? global.UI.formatNumber(total) + ' de ' + global.UI.formatNumber(datasetTotal) + ' registro(s) correspondem aos filtros atuais.'
+        : global.UI.formatNumber(total) + ' registro(s) no dataset.')
+      : (datasetTotal
+        ? 'Nenhum registro corresponde aos filtros atuais. O dataset tem ' + global.UI.formatNumber(datasetTotal) + ' registro(s).'
+        : 'Nenhum registro.');
     els['page-info'].innerText = 'Página ' + state.page + ' de ' + pages;
     els['page-prev'].disabled = state.page <= 1;
     els['page-next'].disabled = state.page >= pages;
@@ -909,10 +1010,24 @@
     });
   }
 
-  function csvCell(value) {
+  // Proteção contra CSV injection (fórmula): vale apenas para campos de TEXTO.
+  // Campos numéricos saem como número puro — sem o prefixo "'" — senão o
+  // Excel/Power BI lê "-1234,56" como texto e a agregação quebra (B2).
+  var CSV_FORMULA_PREFIX = /^[=+\-@\t\r]/;
+  var CSV_NUMBER_PATTERN = /^-?\d+(?:[.,]\d+)?$/;
+
+  function csvTextCell(value) {
     var text = value == null ? '' : String(value);
-    if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
+    if (CSV_FORMULA_PREFIX.test(text)) text = "'" + text;
     return '"' + text.replace(/"/g, '""') + '"';
+  }
+
+  function csvNumberCell(value) {
+    if (value == null || value === '') return '';
+    var text = String(value).trim();
+    // Valor não numérico (texto inesperado): cai na proteção de fórmula.
+    if (!CSV_NUMBER_PATTERN.test(text)) return csvTextCell(value);
+    return text;
   }
 
   function exportCsv() {
@@ -921,50 +1036,50 @@
     var lines = ['Mês;Operação;Analista;Mercadoria;LCL/FCL;Modalidade;Reg DI;Situação;Origem;Destino;Incoterm;Valor informado;Moeda;Valor USD;Despachante;ETA;Ano ETA;ETS;Est Emb;Est Atr;Fechamento;Estimativa Emb;Estimativa Atr;Atracado;RIC;Número DI;Protocolo DI;Transportadora;Free time;Data Free time;Dias p/ Dev CNTR;Dias p/ Demurrage;Exportador;Agente;Conhecimento;Container;Invoice;Navio;Faturada;Arquivado;Comentários;Linha Excel'];
     rows.forEach(function (item) {
       lines.push([
-        csvCell(getMonthlyReferenceMonth(item) == null ? '' : getMonthlyReferenceMonth(item)),
-        csvCell(item.operacao),
-        csvCell(item.analista),
-        csvCell(item.mercadoria),
-        csvCell(item.modal),
-        csvCell(item.modalidade),
-        csvCell(item.regDi),
-        csvCell(item.situacao),
-        csvCell(item.origem),
-        csvCell(item.destino),
-        csvCell(item.incoterm),
-        csvCell((item.valor || 0).toFixed(2).replace('.', ',')),
-        csvCell(item.valorMoeda || 'USD'),
-        csvCell(item.valorUSD == null ? '' : item.valorUSD.toFixed(2).replace('.', ',')),
-        csvCell(item.despachante),
-        csvCell(item.eta),
-        csvCell(item.etaYear == null ? '' : item.etaYear),
-        csvCell(item.ets),
-        csvCell(item.estEmb),
-        csvCell(item.estAtr),
-        csvCell(item.fech),
-        csvCell(flagCsv(item.estimativaEmb)),
-        csvCell(flagCsv(item.estimativaAtr)),
-        csvCell(flagCsv(item.atracado)),
-        csvCell(item.ric),
-        csvCell(item.numeroDi),
-        csvCell(item.protocoloDi),
-        csvCell(item.transportadora),
-        csvCell(item.freeTime == null ? '' : String(item.freeTime).replace('.', ',')),
-        csvCell(item.freeTimeData),
-        csvCell(item.diasDevCntr == null ? '' : String(item.diasDevCntr).replace('.', ',')),
-        csvCell(item.diasDemurrage == null ? '' : String(item.diasDemurrage).replace('.', ',')),
-        csvCell(item.exportador),
-        csvCell(item.agente),
-        csvCell(item.conhecimento),
-        csvCell(item.container),
-        csvCell(item.invoice),
-        csvCell(item.navio),
-        csvCell(global.ETL.isFaturada(item) ? 'Sim' : ''),
-        csvCell(global.ETL.isArquivado(item) ? 'Sim' : ''),
-        csvCell(item.comments.map(function (comment) {
+        csvNumberCell(getMonthlyReferenceMonth(item) == null ? '' : getMonthlyReferenceMonth(item)),
+        csvTextCell(item.operacao),
+        csvTextCell(item.analista),
+        csvTextCell(item.mercadoria),
+        csvTextCell(item.modal),
+        csvTextCell(item.modalidade),
+        csvTextCell(item.regDi),
+        csvTextCell(item.situacao),
+        csvTextCell(item.origem),
+        csvTextCell(item.destino),
+        csvTextCell(item.incoterm),
+        csvNumberCell((item.valor || 0).toFixed(2).replace('.', ',')),
+        csvTextCell(item.valorMoeda || 'USD'),
+        csvNumberCell(item.valorUSD == null ? '' : item.valorUSD.toFixed(2).replace('.', ',')),
+        csvTextCell(item.despachante),
+        csvTextCell(item.eta),
+        csvNumberCell(item.etaYear == null ? '' : item.etaYear),
+        csvTextCell(item.ets),
+        csvTextCell(item.estEmb),
+        csvTextCell(item.estAtr),
+        csvTextCell(item.fech),
+        csvTextCell(flagCsv(item.estimativaEmb)),
+        csvTextCell(flagCsv(item.estimativaAtr)),
+        csvTextCell(flagCsv(item.atracado)),
+        csvTextCell(item.ric),
+        csvTextCell(item.numeroDi),
+        csvTextCell(item.protocoloDi),
+        csvTextCell(item.transportadora),
+        csvNumberCell(item.freeTime == null ? '' : String(item.freeTime).replace('.', ',')),
+        csvTextCell(item.freeTimeData),
+        csvNumberCell(item.diasDevCntr == null ? '' : String(item.diasDevCntr).replace('.', ',')),
+        csvNumberCell(item.diasDemurrage == null ? '' : String(item.diasDemurrage).replace('.', ',')),
+        csvTextCell(item.exportador),
+        csvTextCell(item.agente),
+        csvTextCell(item.conhecimento),
+        csvTextCell(item.container),
+        csvTextCell(item.invoice),
+        csvTextCell(item.navio),
+        csvTextCell(global.ETL.isFaturada(item) ? 'Sim' : ''),
+        csvTextCell(global.ETL.isArquivado(item) ? 'Sim' : ''),
+        csvTextCell(item.comments.map(function (comment) {
           return [comment.reference, comment.text, comment.author, comment.date].filter(Boolean).join(' — ');
         }).join(' | ')),
-        csvCell(item.sourceRowNumber == null ? '' : item.sourceRowNumber)
+        csvNumberCell(item.sourceRowNumber == null ? '' : item.sourceRowNumber)
       ].join(';'));
     });
     var stamp = new Date().toISOString().slice(0, 10);
@@ -997,6 +1112,16 @@
     input.disabled = loading;
   }
 
+  // Executa a tarefa no próximo momento ocioso do navegador (ou no próximo
+  // tick). Serve para o parse na thread principal não começar antes de a
+  // interface pintar o aviso de "Processando…" (M5).
+  function runWhenIdle(task) {
+    if (typeof global.requestIdleCallback === 'function') {
+      return global.requestIdleCallback(task, { timeout: 2000 });
+    }
+    return setTimeout(task, 0);
+  }
+
   function parseBuffer(buffer) {
     return new Promise(function (resolve) {
       var worker = null;
@@ -1004,13 +1129,6 @@
         worker = new Worker('assets/js/worker.js');
       } catch (error) {
         worker = null;
-      }
-      if (!worker) {
-        setTimeout(function () {
-          try { resolve(global.ETL.parseWorkbook(buffer)); }
-          catch (error) { resolve({ error: error }); }
-        }, 0);
-        return;
       }
       var settled = false;
       var finish = function (result) {
@@ -1020,23 +1138,42 @@
         try { worker.terminate(); } catch (error) { /* noop */ }
         resolve(result);
       };
+      // Parse na thread principal. Só acontece quando o Worker não existe ou
+      // falha. `settled` impede repetir o trabalho depois que a promessa já
+      // foi resolvida (por exemplo, quando o timeout de 90 s disparou): sem
+      // essa guarda a aba travava processando um arquivo que já deu timeout
+      // (M5).
+      var parseOnMainThread = function () {
+        if (settled) return;
+        runWhenIdle(function () {
+          if (settled) return;
+          try { finish(global.ETL.parseWorkbook(buffer)); }
+          catch (error) { finish({ error: error }); }
+        });
+      };
       var timer = setTimeout(function () {
         finish({ error: new Error('Tempo excedido ao processar o arquivo.') });
       }, 90000);
+      if (!worker) {
+        // Sem Worker: o parse roda na thread principal. O timeout acima
+        // garante que a promessa sempre resolva e impede que o parse comece
+        // depois que o prazo estourou.
+        parseOnMainThread();
+        return;
+      }
       worker.onmessage = function (event) {
         if (event.data && event.data.ok) finish(event.data.result);
         else finish({ error: new Error((event.data && event.data.error) || 'Falha ao processar a planilha.') });
       };
       worker.onerror = function (event) {
         console.error('Falha no Worker de importação; usando o processamento principal.', event);
-        try { finish(global.ETL.parseWorkbook(buffer)); }
-        catch (error) { finish({ error: error }); }
+        // Se o timeout já disparou, `settled` é true e o parse não é refeito.
+        parseOnMainThread();
       };
       try {
         worker.postMessage({ buffer: buffer });
       } catch (error) {
-        try { finish(global.ETL.parseWorkbook(buffer)); }
-        catch (fallbackError) { finish({ error: fallbackError }); }
+        parseOnMainThread();
       }
     });
   }
@@ -1171,6 +1308,13 @@
     if (!context.validationOpen) return;
     context.validationOpen = false;
     pendingSnapshotValidations = Math.max(0, pendingSnapshotValidations - 1);
+    if (pendingSnapshotValidations === 0 && persistPending) {
+      // A importação terminou: retoma a persistência que ficou pendente em
+      // vez de reagendar o timer indefinidamente (B4).
+      persistPending = false;
+      persistRetryCount = 0;
+      schedulePersist();
+    }
   }
 
   function handleRejectedSnapshot(error, previousSnapshot) {
@@ -1210,6 +1354,9 @@
       if (result.error) throw result.error;
       var nextRecords = result.records.map(prepareRecord);
       canonicalizeDataset(nextRecords);
+      // Reindexa depois da canonicalização (B1): o _search precisa refletir os
+      // valores finais dos campos.
+      nextRecords.forEach(buildSearchIndex);
       result.fileName = file.name;
       return fetchComparisonSnapshot().then(function (comparisonSource) {
         var remoteCompared = comparisonSource.available;
@@ -1359,50 +1506,63 @@
     return !!error && /SNAPSHOT_(MISSING_RECORDS|INVALID_KEYS|DUPLICATE_KEYS|INVALID)/.test(String(error.message || ''));
   }
 
-  function schedulePersist(options) {
-    var settings = options || {};
-    var remote = settings.remote === true;
+  // Agendamento da persistência local (cache IndexedDB). O intervalo de
+  // 600 ms evita gravar a cada tecla digitada.
+  //
+  // Se houver uma validação de snapshot em andamento (importação em curso), o
+  // cache local fica congelado: gravar agora poderia salvar um snapshot que o
+  // banco ainda vai recusar. A persistência é retomada quando a validação
+  // termina (endSnapshotValidation), com um limite de tentativas para nunca
+  // reagendar indefinidamente (B4).
+  var PERSIST_RETRY_LIMIT = 10;
+
+  function schedulePersist() {
     clearTimeout(persistTimer);
-    persistTimer = setTimeout(function () {
-      if (pendingSnapshotValidations > 0) {
-        // Não grava no cache local um snapshot que o banco ainda pode recusar.
-        // Reagenda para depois que a importação remota terminar.
-        schedulePersist(settings);
+    persistTimer = setTimeout(runScheduledPersist, 600);
+  }
+
+  function runScheduledPersist() {
+    persistTimer = null;
+    if (pendingSnapshotValidations > 0) {
+      persistPending = true;
+      if (persistRetryCount < PERSIST_RETRY_LIMIT) {
+        persistRetryCount += 1;
+        persistTimer = setTimeout(runScheduledPersist, 600);
+      }
+      return;
+    }
+    persistPending = false;
+    persistRetryCount = 0;
+    persistLocal().then(function (result) {
+      var saved = result === true || (result && result.saved === true);
+      if (saved) {
+        persistenceWarningShown = false;
         return;
       }
-      var task = remote ? persistState() : persistLocal();
-      task.then(function (result) {
-        var saved = result === true || (result && result.saved === true);
-        if (saved) {
-          persistenceWarningShown = false;
-          return;
-        }
-        if (result && result.validationError) {
-          // A importação usa persistNow() e trata a recusa antes de chegar aqui;
-          // esta é apenas uma rede de segurança para chamadas remotas antigas.
-          handleRejectedSnapshot(result.validationError, null);
-          return;
-        }
-        if (!state.isDemo && !persistenceWarningShown) {
-          persistenceWarningShown = true;
-          global.UI.toast(remote
-            ? 'O dataset não pôde ser enviado ao servidor. Ele ficou salvo apenas neste navegador.'
-            : 'O dataset atual não pôde ser salvo neste navegador.', 'warning', 'Persistência indisponível');
-        }
-      }).catch(function (error) {
-        console.error('Falha ao persistir o dataset.', error);
-        if (!persistenceWarningShown) {
-          persistenceWarningShown = true;
-          global.UI.toast('O dataset atual não pôde ser salvo nesta sessão.', 'warning', 'Persistência indisponível');
-        }
-      });
-    }, 600);
+      if (result && result.validationError) {
+        // A importação usa persistNow() e trata a recusa antes de chegar aqui;
+        // esta é apenas uma rede de segurança para chamadas remotas antigas.
+        handleRejectedSnapshot(result.validationError, null);
+        return;
+      }
+      if (!state.isDemo && !persistenceWarningShown) {
+        persistenceWarningShown = true;
+        global.UI.toast('O dataset atual não pôde ser salvo neste navegador.', 'warning', 'Persistência indisponível');
+      }
+    }).catch(function (error) {
+      console.error('Falha ao persistir o dataset.', error);
+      if (!persistenceWarningShown) {
+        persistenceWarningShown = true;
+        global.UI.toast('O dataset atual não pôde ser salvo nesta sessão.', 'warning', 'Persistência indisponível');
+      }
+    });
   }
 
   // Importação precisa saber se o banco aceitou o snapshot antes de mostrar
   // sucesso; interações de UI continuam usando o debounce de schedulePersist().
   function persistNow() {
     clearTimeout(persistTimer);
+    persistTimer = null;
     return persistState();
   }
 
@@ -1410,7 +1570,11 @@
     if (state.isDemo) return null;
     return {
       version: global.DashboardState.SNAPSHOT_VERSION,
-      records: state.dataset,
+      // O que é persistido é enxuto: sem o índice de busca derivado (_search) e
+      // sem campos vazios (null, '' e arrays vazios). O _search é recalculado
+      // por prepareRecord() quando o snapshot é restaurado, então a busca
+      // continua funcionando (M1).
+      records: state.dataset.map(toPersistedRecord),
       meta: {
         name: state.meta.name,
         sheetName: state.meta.sheetName,

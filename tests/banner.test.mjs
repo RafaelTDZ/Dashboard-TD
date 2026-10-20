@@ -76,7 +76,7 @@ class FakeElement {
   remove() {}
 }
 
-function createDom() {
+function createDom(options = {}) {
   const elements = new Map();
   const selectors = new Map();
   const listeners = new Map();
@@ -86,7 +86,16 @@ function createDom() {
     documentElement: new FakeElement('html'),
     createElement: (tagName) => new FakeElement(tagName),
     getElementById(id) {
-      if (!elements.has(id)) elements.set(id, new FakeElement('div'));
+      if (!elements.has(id)) {
+        const element = new FakeElement('div');
+        // `breakOn` simula uma falha de vínculo: o elemento existe (a
+        // estrutura está completa), mas o addEventListener estoura. É o
+        // caminho que leva o app.js a mostrarStatusBannerError().
+        if (options.breakOn === id) {
+          element.addEventListener = () => { throw new Error('Falha simulada ao vincular a interface.'); };
+        }
+        elements.set(id, element);
+      }
       return elements.get(id);
     },
     querySelector(selector) {
@@ -333,6 +342,125 @@ test('card de status aparece só depois do upload e volta a se esconder', async 
     // devolver os globais originais.
     await flush(20);
   } finally {
+    restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// T1 — o estado do dataset precisa ser VISÍVEL, não só "não escondido".
+//
+// O bug A2 existia porque o resumo era escrito em #banner-text, dentro de um
+// card que nasce com `hidden`. O card #dataset-summary é o resumo persistente:
+// ele nasce visível e mostra o que está carregado (ou o que fazer).
+// ---------------------------------------------------------------------------
+
+test('card de resumo do dataset mostra o estado vazio e não fica escondido', async () => {
+  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+  const scheduler = createScheduler();
+  const { document, listeners } = createDom();
+  const restore = installGlobals({ document, scheduler });
+
+  try {
+    new Function(app)();
+    const init = listeners.get('DOMContentLoaded')[0];
+    init();
+    await flush();
+    scheduler.advance(0);
+    await flush();
+
+    const summary = document.getElementById('dataset-summary');
+    assert.equal(summary.hidden, false, 'o card de resumo não pode nascer escondido');
+    assert.equal(summary.classList.contains('hidden'), false, 'o card de resumo não pode usar a classe hidden');
+
+    const summaryText = document.getElementById('dataset-summary-text');
+    assert.match(summaryText.innerHTML, /Nenhum arquivo carregado/, 'o estado vazio precisa ser observável');
+    assert.match(summaryText.innerHTML, /Carregar Excel Atualizado/);
+    assert.equal(document.getElementById('dataset-summary-time').innerText, 'Aguardando arquivo');
+
+    // O banner de status continua sendo o card transitório: escondido aqui.
+    assert.equal(document.getElementById('status-banner').hidden, true);
+  } finally {
+    restore();
+  }
+});
+
+test('depois do upload o resumo persistente mostra o arquivo e o banner some sozinho', async () => {
+  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+  const scheduler = createScheduler();
+  const { document, fileInput, listeners } = createDom();
+  const restore = installGlobals({ document, scheduler });
+
+  try {
+    new Function(app)();
+    const init = listeners.get('DOMContentLoaded')[0];
+    init();
+    await flush();
+    scheduler.advance(0);
+    await flush();
+
+    fileInput.files = [{ name: 'Importações.xlsx', arrayBuffer: async () => new ArrayBuffer(8) }];
+    fileInput.dispatch('change', { target: fileInput });
+    await flush(20);
+
+    // O resumo persistente passa a descrever o arquivo carregado.
+    const summaryText = document.getElementById('dataset-summary-text');
+    assert.match(summaryText.innerHTML, /Importações\.xlsx/);
+    assert.doesNotMatch(summaryText.innerHTML, /Nenhum arquivo carregado/);
+
+    // O banner de status é o transitório: mostra a confirmação e some sozinho.
+    const banner = document.getElementById('status-banner');
+    const bannerText = document.getElementById('banner-text');
+    assert.equal(banner.hidden, false);
+    assert.equal(bannerText.textContent, 'Dataset atualizado.');
+
+    scheduler.advance(8000 + 300);
+    assert.equal(banner.hidden, true, 'o banner transitório se esconde sozinho');
+    // O resumo persistente continua na tela depois que o banner some.
+    assert.match(document.getElementById('dataset-summary-text').innerHTML, /Importações\.xlsx/);
+
+    await flush(20);
+  } finally {
+    restore();
+  }
+});
+
+test('um refresh não apaga a mensagem de erro fatal gravada no banner (B3)', async () => {
+  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+  const scheduler = createScheduler();
+  // A falha de vínculo acontece no bindEvents(): o init() cai no catch e
+  // chama showStatusBannerError(), que escreve em #banner-text.
+  const { document, listeners } = createDom({ breakOn: 'table-search' });
+  const restore = installGlobals({ document, scheduler });
+  const errors = [];
+  const originalError = console.error;
+  console.error = (...args) => errors.push(args.map(String).join(' '));
+
+  try {
+    new Function(app)();
+    const init = listeners.get('DOMContentLoaded')[0];
+    init();
+    await flush();
+    scheduler.advance(0);
+    await flush();
+
+    const bannerText = document.getElementById('banner-text');
+    assert.match(bannerText.textContent, /Falha simulada/, 'o erro fatal precisa aparecer no banner');
+    assert.equal(document.getElementById('status-banner').hidden, false, 'o erro fatal não pode ficar escondido');
+
+    // Um refresh() (mudança do filtro de ano) não pode apagar o erro.
+    const year = document.getElementById('monthly-year');
+    year.value = 'ALL';
+    year.dispatch('change', { target: year });
+    await flush();
+    assert.match(bannerText.textContent, /Falha simulada/, 'o refresh() apagou a mensagem de erro');
+    assert.equal(document.getElementById('status-banner').hidden, false);
+
+    // E o card de resumo continua intacto (é persistente).
+    assert.match(document.getElementById('dataset-summary-text').innerHTML, /Nenhum arquivo carregado/);
+
+    await flush(20);
+  } finally {
+    console.error = originalError;
     restore();
   }
 });

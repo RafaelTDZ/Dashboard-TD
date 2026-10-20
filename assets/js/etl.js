@@ -335,12 +335,21 @@
     return date;
   }
 
+  // Faixa plausível de serial do Excel aceita para células numéricas.
+  // 20.000 ≈ 03/10/1954 e 80.000 ≈ 11/01/2119. Fora dessa faixa o número
+  // não é uma data (ex.: um código "2025" viraria 13/06/1905) e devolvemos
+  // null — a mesma proteção que já existe para strings puramente numéricas
+  // (/^\d+$/ logo abaixo).
+  const EXCEL_SERIAL_MIN = 20000;
+  const EXCEL_SERIAL_MAX = 80000;
+
   function parseExcelDate(value) {
     if (value == null || value === '') return null;
     if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
     if (typeof value === 'number') {
-      if (!Number.isFinite(value) || value <= 0) return null;
+      if (!Number.isFinite(value)) return null;
       const wholeDays = Math.floor(value);
+      if (wholeDays < EXCEL_SERIAL_MIN || wholeDays > EXCEL_SERIAL_MAX) return null;
       const fraction = value - wholeDays;
       const date = new Date(1899, 11, 30 + wholeDays);
       if (fraction) date.setMilliseconds(Math.round(fraction * 86400000));
