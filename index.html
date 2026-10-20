@@ -108,14 +108,9 @@
 
     <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
 
-        <!-- Resumo do dataset: sempre visível (o #status-banner é transitório). -->
-        <div id="dataset-summary" class="ui-dataset-summary" role="status" aria-live="polite">
-            <span class="ui-dataset-summary-icon"><i class="fa-solid fa-database" aria-hidden="true"></i></span>
-            <span id="dataset-summary-text" class="ui-dataset-summary-text">Nenhum arquivo carregado. Clique em <strong>Carregar Excel Atualizado</strong> para selecionar a planilha <strong>!Importações.xlsx</strong>.</span>
-            <span id="dataset-summary-time" class="ui-dataset-summary-time">Aguardando arquivo</span>
-        </div>
-
-        <!-- Card transitório: começa escondido e só aparece depois que um arquivo é carregado. -->
+        <!-- Card de status: transitório quando há arquivo carregado (mostra o
+             que foi importado e some sozinho); visível no estado inicial sem
+             arquivo, com a orientação de como começar. -->
         <div id="status-banner" hidden class="ui-status bg-brand-900/30 border border-brand-500/30 rounded-xl p-3 px-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300" aria-live="polite">
             <div class="flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true"></span>

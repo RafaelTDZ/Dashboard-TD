@@ -283,7 +283,7 @@ function installGlobals({ document, scheduler }) {
   };
 }
 
-test('card de status aparece só depois do upload e volta a se esconder', async () => {
+test('card de status: visível sem arquivo, transitório com arquivo', async () => {
   const html = readFileSync(join(root, 'index.html'), 'utf8');
   const styles = readFileSync(join(root, 'assets', 'css', 'styles.css'), 'utf8');
   const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
@@ -305,14 +305,16 @@ test('card de status aparece só depois do upload e volta a se esconder', async 
     await flush();
     scheduler.advance(0);
 
-    // 2. Sessão restaurada / sem upload: o card continua escondido.
-    assert.equal(banner.hidden, true, 'o card não pode aparecer antes de carregar um arquivo');
+    // 2. Sem arquivo: o card fica visível com a orientação de como começar.
+    assert.equal(banner.hidden, false, 'sem arquivo o card precisa estar visível');
+    assert.match(document.getElementById('banner-text').innerHTML, /Nenhum arquivo carregado/);
 
-    // 3. Upload de arquivo: o card aparece.
+    // 3. Upload de arquivo: o card passa a descrever o arquivo.
     fileInput.files = [{ name: 'Importações.xlsx', arrayBuffer: async () => new ArrayBuffer(8) }];
     fileInput.dispatch('change', { target: fileInput });
     await flush();
     assert.equal(banner.hidden, false, 'o card deve aparecer depois do upload');
+    assert.match(document.getElementById('banner-text').innerHTML, /Importações\.xlsx/);
 
     // 4. Fechamento automático: visível durante a contagem...
     scheduler.advance(7999);
@@ -349,12 +351,14 @@ test('card de status aparece só depois do upload e volta a se esconder', async 
 // ---------------------------------------------------------------------------
 // T1 — o estado do dataset precisa ser VISÍVEL, não só "não escondido".
 //
-// O bug A2 existia porque o resumo era escrito em #banner-text, dentro de um
-// card que nasce com `hidden`. O card #dataset-summary é o resumo persistente:
-// ele nasce visível e mostra o que está carregado (ou o que fazer).
+// O card de status (#status-banner) tem dois modos:
+//   - sem arquivo  -> fica visível com a orientação de como começar;
+//   - com arquivo  -> mostra o que foi carregado e some sozinho (transitório).
+// O bug A2 existia porque o resumo era escrito num card que nascia `hidden` e
+// nunca era revelado.
 // ---------------------------------------------------------------------------
 
-test('card de resumo do dataset mostra o estado vazio e não fica escondido', async () => {
+test('sem arquivo o card de status fica visível com a orientação de como começar', async () => {
   const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   const scheduler = createScheduler();
   const { document, listeners } = createDom();
@@ -368,23 +372,24 @@ test('card de resumo do dataset mostra o estado vazio e não fica escondido', as
     scheduler.advance(0);
     await flush();
 
-    const summary = document.getElementById('dataset-summary');
-    assert.equal(summary.hidden, false, 'o card de resumo não pode nascer escondido');
-    assert.equal(summary.classList.contains('hidden'), false, 'o card de resumo não pode usar a classe hidden');
+    const banner = document.getElementById('status-banner');
+    assert.equal(banner.hidden, false, 'o estado vazio precisa aparecer para o usuário');
+    assert.equal(banner.classList.contains('is-fading-out'), false);
 
-    const summaryText = document.getElementById('dataset-summary-text');
-    assert.match(summaryText.innerHTML, /Nenhum arquivo carregado/, 'o estado vazio precisa ser observável');
-    assert.match(summaryText.innerHTML, /Carregar Excel Atualizado/);
-    assert.equal(document.getElementById('dataset-summary-time').innerText, 'Aguardando arquivo');
+    const bannerText = document.getElementById('banner-text');
+    assert.match(bannerText.innerHTML, /Nenhum arquivo carregado/, 'o estado vazio precisa ser observável');
+    assert.match(bannerText.innerHTML, /Carregar Excel Atualizado/);
+    assert.equal(document.getElementById('last-update-time').innerText, 'Aguardando arquivo');
 
-    // O banner de status continua sendo o card transitório: escondido aqui.
-    assert.equal(document.getElementById('status-banner').hidden, true);
+    // Sem arquivo não há o que esconder: o card NÃO expira.
+    scheduler.advance(8000 + 300);
+    assert.equal(banner.hidden, false, 'o estado vazio não pode sumir sozinho');
   } finally {
     restore();
   }
 });
 
-test('depois do upload o resumo persistente mostra o arquivo e o banner some sozinho', async () => {
+test('depois do upload o card mostra o arquivo e some sozinho', async () => {
   const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   const scheduler = createScheduler();
   const { document, fileInput, listeners } = createDom();
@@ -402,21 +407,20 @@ test('depois do upload o resumo persistente mostra o arquivo e o banner some soz
     fileInput.dispatch('change', { target: fileInput });
     await flush(20);
 
-    // O resumo persistente passa a descrever o arquivo carregado.
-    const summaryText = document.getElementById('dataset-summary-text');
-    assert.match(summaryText.innerHTML, /Importações\.xlsx/);
-    assert.doesNotMatch(summaryText.innerHTML, /Nenhum arquivo carregado/);
-
-    // O banner de status é o transitório: mostra a confirmação e some sozinho.
-    const banner = document.getElementById('status-banner');
+    // O card passa a descrever o arquivo carregado.
     const bannerText = document.getElementById('banner-text');
+    const banner = document.getElementById('status-banner');
+    assert.match(bannerText.innerHTML, /Importações\.xlsx/);
+    assert.doesNotMatch(bannerText.innerHTML, /Nenhum arquivo carregado/);
     assert.equal(banner.hidden, false);
-    assert.equal(bannerText.textContent, 'Dataset atualizado.');
 
-    scheduler.advance(8000 + 300);
-    assert.equal(banner.hidden, true, 'o banner transitório se esconde sozinho');
-    // O resumo persistente continua na tela depois que o banner some.
-    assert.match(document.getElementById('dataset-summary-text').innerHTML, /Importações\.xlsx/);
+    // E some sozinho: primeiro o fade, depois o hidden.
+    scheduler.advance(7999);
+    assert.equal(banner.hidden, false, 'o card deve permanecer visível durante a contagem');
+    scheduler.advance(1);
+    assert.equal(banner.classList.contains('is-fading-out'), true);
+    scheduler.advance(300);
+    assert.equal(banner.hidden, true, 'o card do resumo deve sumir sozinho');
 
     await flush(20);
   } finally {
@@ -455,13 +459,9 @@ test('um refresh não apaga a mensagem de erro fatal gravada no banner (B3)', as
     assert.match(bannerText.textContent, /Falha simulada/, 'o refresh() apagou a mensagem de erro');
     assert.equal(document.getElementById('status-banner').hidden, false);
 
-    // E o card de resumo continua intacto (é persistente).
-    assert.match(document.getElementById('dataset-summary-text').innerHTML, /Nenhum arquivo carregado/);
-
     await flush(20);
   } finally {
     console.error = originalError;
     restore();
   }
 });
-

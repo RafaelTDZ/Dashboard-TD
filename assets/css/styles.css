@@ -63,85 +63,12 @@ body {
   pointer-events: none;
 }
 
-/* Resumo do dataset (A2): card PERSISTENTE que diz o que está carregado
-   (arquivo, guia, nº de processos, comentários e hora da última leitura).
-   Ele fica FORA do #status-banner porque aquele é transitório (aparece só
-   depois de importar e some sozinho) — por isso o resumo nunca pode morar
-   dentro dele, ou o usuário fica sem informação no estado inicial. */
-.ui-dataset-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-  max-width: 100%;
-  padding: 0.7rem 1rem;
-  border: 1px solid #334155;
-  border-radius: 0.75rem;
-  background: rgba(30, 41, 59, 0.6);
-  box-shadow: 0 1px 2px rgba(2, 6, 23, 0.35);
-  color: #cbd5e1;
-  font-size: 0.8125rem;
-  line-height: 1.45;
-}
-
-.ui-dataset-summary strong {
-  color: #f8fafc;
-  font-weight: 700;
-}
-
-.ui-dataset-summary-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.6rem;
-  background: rgba(16, 185, 129, 0.12);
-  color: #34d399;
-  font-size: 0.85rem;
-}
-
-.ui-dataset-summary-text {
-  flex: 1 1 18rem;
-  min-width: 0;
-  color: #e2e8f0;
-  font-size: 0.8125rem;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-}
-
-.ui-dataset-summary-time {
-  flex: none;
-  margin-left: auto;
-  color: #94a3b8;
-  font-size: 0.6875rem;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-/* Tela estreita: ícone + texto na primeira linha e hora da leitura abaixo,
-   sem estouro horizontal. */
-@media (max-width: 640px) {
-  .ui-dataset-summary {
-    align-items: flex-start;
-    gap: 0.5rem 0.65rem;
-    padding: 0.65rem 0.8rem;
-  }
-
-  .ui-dataset-summary-icon {
-    align-self: flex-start;
-  }
-
-  .ui-dataset-summary-text {
-    flex: 1 1 0;
-  }
-
-  .ui-dataset-summary-time {
-    flex: 1 1 100%;
-    margin-left: 0;
-    white-space: normal;
-  }
+/* Card de status (#status-banner): quando há arquivo carregado ele é
+   TRANSITÓRIO — mostra o que foi importado e some sozinho. No estado inicial
+   sem arquivo ele fica visível com a orientação de como começar. Por isso o
+   conteúdo do resumo mora aqui (e não em outro card permanente). */
+#status-banner {
+  transition: opacity 0.3s ease;
 }
 
 .toast-card {
@@ -548,32 +475,6 @@ body[data-ui-style="modern"] .ui-status [class~="bg-emerald-400"] {
 
 body[data-ui-style="modern"] .ui-status > div:first-child > span {
   box-shadow: 0 0 0 4px rgba(24, 24, 27, 0.12);
-}
-
-/* Resumo do dataset (card persistente) no tema claro. */
-body[data-ui-style="modern"] .ui-dataset-summary {
-  background: #ffffff;
-  border-color: #e4e4e7;
-  border-radius: 0.75rem;
-  box-shadow: 0 1px 2px rgba(24, 24, 27, 0.05);
-  color: #3f3f46;
-}
-
-body[data-ui-style="modern"] .ui-dataset-summary strong {
-  color: #09090b;
-}
-
-body[data-ui-style="modern"] .ui-dataset-summary-icon {
-  background: rgba(24, 24, 27, 0.06);
-  color: #18181b;
-}
-
-body[data-ui-style="modern"] .ui-dataset-summary-text {
-  color: #09090b;
-}
-
-body[data-ui-style="modern"] .ui-dataset-summary-time {
-  color: #71717a;
 }
 
 body[data-ui-style="modern"] [class~="text-slate-200"] {

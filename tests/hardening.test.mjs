@@ -27,42 +27,53 @@ function bodyOf(source, signature) {
 }
 
 // ---------------------------------------------------------------------------
-// A2 — o resumo do dataset é persistente; o banner de status é transitório
+// A2 — o card de status tem dois modos: transitório com arquivo, persistente
+//       no estado inicial (sem arquivo) e no erro fatal.
 // ---------------------------------------------------------------------------
 
-test('card de resumo do dataset é sempre visível e o banner de status continua transitório', () => {
-  const summary = tagOf(html, 'dataset-summary');
-  assert.doesNotMatch(summary, /\shidden[\s>]/, 'o card de resumo não pode nascer escondido');
-  assert.doesNotMatch(summary, /class="[^"]*\bhidden\b/, 'o card de resumo não pode usar a classe hidden');
-  assert.match(summary, /role="status"/);
-  assert.match(summary, /aria-live="polite"/);
-
-  assert.ok(html.includes('id="dataset-summary-text"'));
-  assert.ok(html.includes('id="dataset-summary-time"'));
-
-  // O texto inicial convida a carregar a planilha (estado vazio observável).
-  assert.match(html, /id="dataset-summary-text"[^>]*>Nenhum arquivo carregado\./);
-
-  // O banner continua começando escondido: ele é só o aviso transitório.
+test('o card de status nasce escondido e é revelado pelo app nos dois modos', () => {
+  // O HTML começa escondido: quem decide a visibilidade é o app, para o card
+  // nunca aparecer antes do dataset ser restaurado.
   const banner = tagOf(html, 'status-banner');
   assert.match(banner, /\shidden[\s>]/);
+  assert.match(banner, /aria-live="polite"/);
+  assert.ok(html.includes('id="banner-text"'));
+  assert.ok(html.includes('id="last-update-time"'));
+
+  // Não pode existir um segundo card de resumo permanente: a mensagem é única.
+  assert.doesNotMatch(html, /id="dataset-summary"/, 'o resumo deve morar no card de status');
+
+  // O app sabe revelar nos dois modos e sabe esconder de novo.
+  const show = bodyOf(app, 'function showStatusBanner\\(transient\\)');
+  assert.match(show, /banner\.hidden = false/, 'o card precisa ser revelado');
+  assert.match(show, /STATUS_BANNER_VISIBLE_MS/);
+
+  // O estado inicial (sem arquivo) fica visível; com arquivo, expira.
+  const init = app.match(/restoreState\(\)\.then\(function \(snapshot\)[\s\S]*?\}\)\.catch/);
+  assert.ok(init, 'o init precisa decidir a visibilidade do card');
+  assert.match(init[0], /showStatusBanner\(!!snapshot\)/, 'sem dataset o card fica; com dataset ele expira');
 });
 
-test('updateBanner escreve no card de resumo e o erro fatal escreve no banner', () => {
+test('updateBanner escreve o resumo no card e o erro fatal trava a mensagem', () => {
   const update = bodyOf(app, 'function updateBanner\\(\\)');
-  assert.match(update, /setDatasetSummary\(/, 'o resumo persistente precisa ser atualizado');
-  assert.doesNotMatch(update, /banner-text/, 'updateBanner não pode escrever no banner transitório');
-  assert.doesNotMatch(update, /last-update-time/);
+  assert.match(update, /setBannerText\(/, 'o resumo precisa ser escrito');
+  assert.match(update, /last-update-time/);
+  assert.match(update, /Nenhum arquivo carregado/, 'o estado vazio precisa ser observável');
 
-  // O erro fatal (sem timer) fica no banner; o card de resumo não é apagado.
+  // O texto mora no #banner-text do próprio card de status.
+  const setText = bodyOf(app, 'function setBannerText\\(html\\)');
+  assert.match(setText, /els\['banner-text'\]/);
+  assert.match(setText, /statusBannerLocked/, 'setBannerText precisa respeitar o bloqueio de erro');
+
+  // O erro fatal fica no mesmo campo, mas trava o card para que um refresh()
+  // posterior não apague a mensagem (B3).
   const fatal = bodyOf(app, 'function showStatusBannerError\\(message\\)');
   assert.match(fatal, /els\['banner-text'\]/);
-  assert.doesNotMatch(fatal, /setDatasetSummary\(/);
+  assert.match(fatal, /statusBannerLocked = true/);
 
-  // O banner transitório também escreve no #banner-text (é o dono do campo).
+  // A importação reabilita o card (o erro deixa de valer).
   const transient = bodyOf(app, 'function showTransientUpdateBanner\\(\\)');
-  assert.match(transient, /els\['banner-text'\]/);
-  assert.doesNotMatch(transient, /setDatasetSummary\(/);
+  assert.match(transient, /statusBannerLocked = false/);
 });
 
 // ---------------------------------------------------------------------------

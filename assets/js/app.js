@@ -19,7 +19,6 @@
     'tab-dashboard', 'tab-data', 'tab-integration',
     'style-switcher', 'style-option-modern', 'style-option-classic',
     'banner-text', 'last-update-time', 'last-read-header',
-    'dataset-summary', 'dataset-summary-text', 'dataset-summary-time',
     'kpi-volume', 'kpi-volume-hint', 'kpi-processos', 'kpi-peso', 'kpi-ticket', 'kpi-conclusao', 'kpi-sla', 'kpi-sla-hint',
     'filter-operacao', 'filter-mes-toggle', 'filter-mes-label', 'filter-mes-menu', 'filter-mes-all', 'filter-mes-list',
     'filter-analista', 'filter-situacao', 'filter-reg-di',
@@ -280,6 +279,9 @@
       normalizeFilterState();
       applyFilterStateToInputs();
       refresh();
+      // Com dataset, o card mostra o que foi carregado e some sozinho. Sem
+      // dataset, ele fica visível com a orientação de como começar.
+      showStatusBanner(!!snapshot);
     }).catch(function (error) {
       console.error('Falha ao inicializar o dataset.', error);
       resetToDemoState();
@@ -287,6 +289,7 @@
       normalizeFilterState();
       applyFilterStateToInputs();
       refresh();
+      showStatusBanner(false);
     });
   }
 
@@ -810,39 +813,47 @@
     renderTable();
   }
 
-  // O card #dataset-summary é persistente: mostra o que está carregado (ou o
-  // que fazer para carregar). O #status-banner é transitório e guarda apenas
-  // mensagens de importação/erro — por isso updateBanner() NÃO escreve nele.
-  var lastDatasetSummaryHtml = '';
+  // O card de status (#status-banner) tem dois modos:
+  //   - com dataset  -> mostra o que está carregado e some sozinho (transitório);
+  //   - sem dataset  -> mostra o que fazer para carregar e fica visível.
+  // A visibilidade NUNCA é mexida por refresh(): só a restauração, a
+  // importação e o erro de inicialização decidem, para o card não reaparecer a
+  // cada tecla digitada.
+  var lastBannerHtml = '';
+  // Enquanto o card mostra um erro fatal de inicialização, o refresh() não pode
+  // sobrescrever a mensagem (B3).
+  var statusBannerLocked = false;
 
-  function setDatasetSummary(html) {
-    var element = els['dataset-summary-text'];
+  function setBannerText(html) {
+    var element = els['banner-text'];
     if (!element) return;
+    if (statusBannerLocked) return;
     // O card é uma região ao vivo (aria-live): reescrever o mesmo texto a cada
     // refresh() faria o leitor de tela repetir a leitura a cada tecla digitada.
-    if (lastDatasetSummaryHtml === html) return;
-    lastDatasetSummaryHtml = html;
+    if (lastBannerHtml === html) return;
+    lastBannerHtml = html;
     element.innerHTML = html;
   }
 
   function updateBanner() {
     var meta = state.meta || {};
-    var lastReadText = state.isDemo || !state.dataset.length
+    var isEmpty = state.isDemo || !state.dataset.length;
+    var lastReadText = isEmpty
       ? 'Última leitura: aguardando arquivo'
       : 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
     els['last-read-header'].innerText = lastReadText;
-    if (state.isDemo || !state.dataset.length) {
-      setDatasetSummary('Nenhum arquivo carregado. Clique em <strong>Carregar Excel Atualizado</strong> para selecionar a planilha <strong>!Importações.xlsx</strong>.');
-      els['dataset-summary-time'].innerText = 'Aguardando arquivo';
+    if (isEmpty) {
+      setBannerText('Nenhum arquivo carregado. Clique em <strong>Carregar Excel Atualizado</strong> para selecionar a planilha <strong>!Importações.xlsx</strong>.');
+      els['last-update-time'].innerText = 'Aguardando arquivo';
       return;
     }
     var ignoredText = meta.ignoredRows ? ' &bull; ' + global.UI.formatNumber(meta.ignoredRows) + ' linha(s) ignorada(s)' : '';
     var commentsText = meta.commentCount ? ' &bull; ' + global.UI.formatNumber(meta.commentCount) + ' comentário(s)' : '';
-    setDatasetSummary('<strong>' + global.UI.escapeHtml(meta.name) + '</strong>' +
+    setBannerText('<strong>' + global.UI.escapeHtml(meta.name) + '</strong>' +
       ' &bull; Guia ' + global.UI.escapeHtml(meta.sheetName || '—') +
       ' &bull; ' + global.UI.formatNumber(meta.rowCount || state.dataset.length) + ' processos' +
       (meta.headerRow ? ' &bull; Cabeçalho na linha ' + meta.headerRow : '') + ignoredText + commentsText);
-    els['dataset-summary-time'].innerText = 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
+    els['last-update-time'].innerText = 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
   }
 
   var STATUS_BANNER_VISIBLE_MS = 8000;
@@ -853,10 +864,6 @@
     if (banner._fadeTimer) { clearTimeout(banner._fadeTimer); banner._fadeTimer = null; }
   }
 
-  // O banner é transitório: nunca é revelado por refresh(), restoreState() ou
-  // mudança de filtro. Só o carregamento de um arquivo chama
-  // showTransientUpdateBanner() e o erro de inicialização chama
-  // showStatusBannerError(). O resumo persistente fica em #dataset-summary.
   function hideStatusBanner() {
     var banner = document.getElementById('status-banner');
     if (!banner) return;
@@ -865,20 +872,16 @@
     banner.hidden = true;
   }
 
-  function showTransientUpdateBanner() {
+  // Revela o card de status. Com `transient` = true ele some sozinho depois
+  // de STATUS_BANNER_VISIBLE_MS (padrão); com false fica visível (estado
+  // inicial sem arquivo e erro fatal de inicialização).
+  function showStatusBanner(transient) {
     var banner = document.getElementById('status-banner');
     if (!banner) return;
     clearStatusBannerTimers(banner);
     banner.classList.remove('is-fading-out');
-    // Confirmação curta no banner transitório. O card persistente
-    // (#dataset-summary) não é tocado aqui.
-    if (els['banner-text']) els['banner-text'].textContent = 'Dataset atualizado.';
-    if (els['last-update-time']) {
-      els['last-update-time'].innerText = state.meta && state.meta.loadedAt
-        ? 'Última leitura: ' + global.UI.formatDateTime(state.meta.loadedAt)
-        : '';
-    }
     banner.hidden = false;
+    if (!transient) return;
     banner._hideTimer = setTimeout(function () {
       banner._hideTimer = null;
       banner.classList.add('is-fading-out');
@@ -889,17 +892,22 @@
     }, STATUS_BANNER_VISIBLE_MS);
   }
 
+  function showTransientUpdateBanner() {
+    statusBannerLocked = false;
+    showStatusBanner(true);
+  }
+
   // Falhas fatais de inicialização precisam ficar visíveis (sem timer). O
-  // erro vai para o banner transitório; o card persistente continua
-  // intacto, então um refresh() posterior não apaga a mensagem (B3).
+  // erro trava o card: um refresh() posterior não pode sobrescrever a
+  // mensagem (B3).
   function showStatusBannerError(message) {
-    var banner = document.getElementById('status-banner');
-    if (!banner) return;
-    clearStatusBannerTimers(banner);
-    banner.classList.remove('is-fading-out');
-    if (els['banner-text']) els['banner-text'].textContent = message;
+    statusBannerLocked = true;
+    if (els['banner-text']) {
+      els['banner-text'].textContent = message;
+      lastBannerHtml = '';
+    }
     if (els['last-update-time']) els['last-update-time'].innerText = 'Falha na inicialização';
-    banner.hidden = false;
+    showStatusBanner(false);
   }
 
   function updateKPIs(data) {

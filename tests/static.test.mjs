@@ -259,11 +259,11 @@ test('seletor de estilo permite alternar entre o visual novo e o antigo', () => 
   assert.match(charts, /global\.Charts = \{ init: init, render: render, setStyle: setStyle \}/);
   assert.doesNotMatch(app, /localStorage|sessionStorage/);
 });
-test('card de status é transitório e só aparece após carregar um arquivo', () => {
+test('card de status é transitório com arquivo e persistente no estado vazio', () => {
   const styles = readFileSync(join(root, 'assets', 'css', 'styles.css'), 'utf8');
   const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
 
-  // Começa escondido: o card não pode ficar persistente antes de carregar o Excel.
+  // Começa escondido: o card não pode ficar visível antes de o app decidir.
   assert.match(html, /id="status-banner"[^>]*\shidden[\s>]/);
 
   // A classe `flex` do Tailwind sobrescrevia o `display: none` do atributo `hidden`,
@@ -275,7 +275,12 @@ test('card de status é transitório e só aparece após carregar um arquivo', (
   const updateBanner = app.match(/function updateBanner\(\)\s*\{([\s\S]*?)\n  \}/)[1];
   assert.doesNotMatch(updateBanner, /hidden|classList/);
 
-  // Somente o upload de arquivo revela o card.
+  // O texto do resumo mora no #banner-text (o próprio card de status).
+  assert.match(app, /function setBannerText\(html\)/);
+  const setBannerText = app.match(/function setBannerText\(html\)\s*\{([\s\S]*?)\n  \}/)[1];
+  assert.match(setBannerText, /els\['banner-text'\]/);
+
+  // A importação revela o card em modo transitório.
   const revealCallSites = [...app.matchAll(/^\s+showTransientUpdateBanner\(\);/gm)];
   assert.equal(revealCallSites.length, 1);
   const upload = app.match(/function handleFileUpload\(event\)\s*\{([\s\S]*?)\r?\n  \}\r?\n/)[1];
@@ -287,9 +292,10 @@ test('card de status é transitório e só aparece após carregar um arquivo', (
 
   // E ele volta a se esconder sozinho, fechando de verdade via hideStatusBanner().
   assert.match(app, /var STATUS_BANNER_VISIBLE_MS = \d+;/);
-  const definition = app.match(/function showTransientUpdateBanner\(\)\s*\{([\s\S]*?)\n  \}/)[1];
-  assert.match(definition, /setTimeout/);
-  assert.match(definition, /hideStatusBanner\(\)/);
+  const show = app.match(/function showStatusBanner\(transient\)\s*\{([\s\S]*?)\n  \}/)[1];
+  assert.match(show, /setTimeout/);
+  assert.match(show, /hideStatusBanner\(\)/);
+  assert.match(show, /if \(!transient\) return;/, 'sem timer quando o card deve ficar visível');
   const hide = app.match(/function hideStatusBanner\(\)\s*\{([\s\S]*?)\n  \}/)[1];
   assert.match(hide, /clearStatusBannerTimers\(banner\)/);
   assert.match(hide, /banner\.hidden = true/);

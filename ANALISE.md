@@ -112,7 +112,7 @@ truncate table public.excel_imports;  -- deve falhar com 42501 permission denied
 
 | | |
 |---|---|
-| **Arquivos** | `index.html:107,110` · `assets/css/styles.css:53-59` · `assets/js/app.js:744-762` |
+| **Arquivos** | `index.html` (`#status-banner`) · `assets/css/styles.css` · `assets/js/app.js` (`updateBanner`, `showStatusBanner`) |
 | **Impacto** | Usuário não vê o que está carregado nem como começar |
 | **Esforço** | 🟡 ~2 h (HTML + CSS + teste) |
 
@@ -146,21 +146,35 @@ O texto é preenchido e **nunca aparece**. O card só é revelado por 8 s após 
 - Combinado com **B9** (filtro de ano padrão oculta 56% dos dados), o usuário não tem
   como saber que existe mais informação disponível.
 
-**Correção (opções)**
+**Correção — card único com dois modos** (decisão final, 20/10)
 
-- **Opção 1 (recomendada):** criar um card persistente fora do banner transitório
-  (ex.: `#dataset-summary`) com nome do arquivo, guia, nº de processos, comentários e
-  data da última leitura. Manter `#status-banner` apenas para o aviso de importação.
-- **Opção 2 (mínima):** mover `#banner-text` para fora de `#status-banner` e usar o banner
-  apenas para a mensagem transitória "arquivo importado".
+O `#status-banner` voltou a ser o **único** cartão de status, com dois modos:
+
+| Situação | Comportamento |
+|---|---|
+| **Sem arquivo** (estado inicial) | visível, mostra "Nenhum arquivo carregado. Clique em **Carregar Excel Atualizado**…" e **fica** (sem timer) |
+| **Com arquivo** (importação ou restauração) | visível, mostra "!Importações.xlsx • Guia … • 1.944 processos • 4 comentário(s)" e **some sozinho** em 8 s (fade de 300 ms) |
+| **Erro fatal de inicialização** | visível, sem timer, e **travado** (`statusBannerLocked`) para que um `refresh()` não apague a mensagem (B3) |
+
+Implementação:
+- `updateBanner()` escreve o resumo em `#banner-text` / `#last-update-time` e **nunca** mexe
+  na visibilidade.
+- `showStatusBanner(transient)` centraliza a revelação: com `transient = true` arma o timer
+  de 8 s; com `false` deixa o card visível sem timer.
+- O estado inicial decide o modo em `init()`: `showStatusBanner(!!snapshot)`.
+- A visibilidade nunca é mudada por `refresh()` — o card não reaparece a cada tecla digitada.
+- O card `#dataset-summary` (criado na primeira rodada) foi **removido**: dois cartões para a
+  mesma informação eram redundantes. A informação persistente ficou no cabeçalho
+  (`#last-read-header` → "Última leitura: 20/10/2026 às 10:18").
 
 **Verificação**
 
-- [ ] Com dataset carregado, o resumo (arquivo / processos / comentários) fica **visível**
-- [ ] Sem dataset, a mensagem "Nenhum arquivo carregado…" fica **visível**
-- [ ] O card transitório continua aparecendo e sumindo sozinho após o upload
-- [ ] `tests/banner.test.mjs` estendido para checar **visibilidade**, não só `hidden`
-- [ ] Passo 1 e 7 do smoke test do README conferidos
+- [x] Com dataset, o resumo aparece e **some sozinho** (medido: visível em 4,5 s, oculto em ~6 s)
+- [x] Sem dataset, "Nenhum arquivo carregado…" fica **visível** e não expira
+- [x] Mudança de filtro (`refresh()`) **não** ressuscita o card
+- [x] `tests/banner.test.mjs` reescrito para checar **visibilidade**, não só `hidden`
+- [x] `tests/hardening.test.mjs` e `tests/static.test.mjs` ajustados
+- [x] `node --test` → **104 testes, 100% verde**
 
 ---
 
@@ -846,7 +860,7 @@ para fechar a cobertura sobre o código já estável.
 | # | Decisão | Opções | Estado | Responsável |
 |---|---|---|---|---|
 | D1 | Filtro de ano padrão (**B9**) | (a) manter ano corrente + exibir "858 de 1.942"; (b) padrão "Todos os anos" | ✅ **(a) aplicada** — o `table-count` agora mostra o total do dataset | — |
-| D2 | Onde exibir o resumo do dataset (**A2**) | (a) card persistente acima dos KPIs; (b) dentro da barra de filtros; (c) no cabeçalho | ✅ **(a) aplicada** — card `#dataset-summary` no topo do `<main>` | — |
+| D2 | Onde exibir o resumo do dataset (**A2**) | (a) card permanente acima dos KPIs; (b) dentro da barra de filtros; (c) no cabeçalho; (d) no card de status, transitório | ✅ **(d) aplicada** — o `#status-banner` voltou a ser o único cartão: transitório com arquivo, persistente no estado vazio | — |
 | D3 | Compilar o Tailwind (**B10**) | (a) sim, gerar CSS estático; (b) manter Play CDN offline | ⏸️ **aberto** — risco de regressão visual: as classes de status (`bg-brand-600`, `text-emerald-400`, `bg-cyan-950`…) são injetadas pelo `app.js` em runtime, então o build precisa varrer `index.html` **e** `assets/js/*.js` | |
 | D4 | Recorte de payload: onde compactar (**M1**) | (a) só remover `_search`; (b) remover também campos vazios; (c) mover para Supabase Storage + `edge function` | ✅ **(b) aplicada** — −25,8%; **(c)** segue como evolução futura | — |
 | D5 | Timeout do papel `anon` (**B14**) | (a) `alter role anon set statement_timeout = '30s'`; (b) edge function com timeout próprio | ⏸️ **aberto** — hoje 3 s para 61 ms de trabalho real | |
@@ -871,6 +885,7 @@ para fechar a cobertura sobre o código já estável.
 | 20/10/2026 | Onda 3 | T1–T5 | ✅ concluído | agente TESTS | **64 → 103 testes, 100% verde** (2,4 s). Criados `hardening/charts/ui/vendor.test.mjs`; card visível e busca sem acento validados no browser |
 | 20/10/2026 | Ajuste final | B15 | ✅ concluído | — | `analytics.js` só injeta onde o script existe → console local com **0 erros**; CSP com `worker-src 'self' blob:` |
 | 20/10/2026 | Ajuste final | B17 | ✅ concluído | — | `tools/serve.mjs` envia `Cache-Control: no-store`; lib XLSX carregada com cache-busting (`?v=`) + retry + mensagem acionável. Importação real do arquivo do usuário (1.944 processos) **sem erro**; banco atualizado |
+| 20/10/2026 | Ajuste final | A2 | ✅ concluído | — | Card de status volta a ser **único** e **transitório** com arquivo (some em 8 s), persistente no estado vazio e no erro fatal. Card `#dataset-summary` removido; informação persistente fica no cabeçalho |
 | | | | | | |
 | | | | | | |
 | | | | | | |
