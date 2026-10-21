@@ -508,7 +508,7 @@ test('filtro de operação sem acento encontra a operação acentuada', async ()
   }
 });
 
-test('a tabela mostra o total do dataset além do total filtrado (B9)', async () => {
+test('a tabela mostra o total do dataset além do total filtrado (B9/F9)', async () => {
   canonicalizeHook = null;
   const year = new Date().getFullYear();
   const records = makeRecords();
@@ -521,8 +521,31 @@ test('a tabela mostra o total do dataset além do total filtrado (B9)', async ()
   try {
     assert.equal(rowCount(document), 3, 'o filtro de ano padrão esconde o registro de outro ano');
     const counter = document.getElementById('table-count');
-    assert.match(counter.innerText, /de 3 de 4 registro\(s\)/, counter.innerText);
-    assert.match(counter.title, /3 de 4 registro\(s\)/, counter.title);
+    assert.match(counter.innerText, /Exibindo 1–3 de 3 filtrados \(4 no total\)/, counter.innerText);
+    assert.match(counter.title, /3 filtrados de 4 registros no dataset/, counter.title);
+
+    // O resumo persistente do cabeçalho e o hint do KPI mostram o mesmo
+    // recorte sem precisar trocar de aba (F9).
+    const summary = document.getElementById('dataset-summary');
+    assert.match(summary.innerText, /Importações\.xlsx/, summary.innerText);
+    assert.match(summary.innerText, /3 de 4 processos/, summary.innerText);
+    assert.match(summary.title, /Importações\.xlsx/, summary.title);
+    assert.match(summary.title, /3 filtrados de 4 processos/, summary.title);
+    assert.match(summary.title, /Última leitura:/, summary.title);
+
+    const hint = document.getElementById('kpi-processos-hint');
+    assert.match(hint.innerText, /3 de 4/, hint.innerText);
+    assert.match(hint.innerText, new RegExp(String(year)), hint.innerText);
+
+    // Sem filtro de ano o recorte passa a ser o dataset inteiro.
+    const yearSelect = document.getElementById('monthly-year');
+    yearSelect.value = 'ALL';
+    yearSelect.dispatch('change', { target: yearSelect });
+
+    assert.equal(rowCount(document), 4, 'o filtro "Todos os anos" mostra o dataset inteiro');
+    assert.match(document.getElementById('table-count').innerText, /Exibindo 1–4 de 4 registros/);
+    assert.match(document.getElementById('dataset-summary').innerText, /4 processos/);
+    assert.equal(hint.innerText, '4 registros no dataset');
 
     scheduler.advance(600);
     await flush();

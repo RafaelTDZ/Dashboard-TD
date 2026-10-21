@@ -40,8 +40,13 @@ test('o card de status nasce escondido e é revelado pelo app nos dois modos', (
   assert.ok(html.includes('id="banner-text"'));
   assert.ok(html.includes('id="last-update-time"'));
 
-  // Não pode existir um segundo card de resumo permanente: a mensagem é única.
-  assert.doesNotMatch(html, /id="dataset-summary"/, 'o resumo deve morar no card de status');
+  // O resumo persistente mora no cabeçalho, FORA do card transitório (F9).
+  assert.match(html, /id="dataset-summary"/);
+  const header = html.match(/<header\b[\s\S]*?<\/header>/);
+  assert.ok(header, 'o <header> não foi encontrado');
+  assert.match(header[0], /id="dataset-summary"/, 'o resumo persistente precisa estar no cabeçalho');
+  const bannerBlock = html.slice(html.indexOf('id="status-banner"'), html.indexOf('<section id="tab-dashboard"'));
+  assert.doesNotMatch(bannerBlock, /id="dataset-summary"/, 'o resumo não pode morar no card de status');
 
   // O app sabe revelar nos dois modos e sabe esconder de novo.
   const show = bodyOf(app, 'function showStatusBanner\\(transient\\)');
@@ -216,9 +221,11 @@ test('código morto de LATEST, getAnalistaMode e schedulePersist(remote) foi rem
 test('tabela mostra o total do dataset junto do total filtrado', () => {
   const render = bodyOf(app, 'function renderTable\\(\\)');
   assert.match(render, /var datasetTotal = state\.dataset\.length;/);
-  assert.match(render, /' de ' \+ global\.UI\.formatNumber\(datasetTotal\)/);
+  assert.match(render, /' filtrados \(' \+ global\.UI\.formatNumber\(datasetTotal\) \+ ' no total\)'/);
+  assert.match(render, /' filtrados de ' \+ global\.UI\.formatNumber\(datasetTotal\) \+ ' registros no dataset\.'/);
   assert.match(render, /els\['table-count'\]\.innerText/);
   assert.match(render, /els\['table-count'\]\.title/);
+  assert.doesNotMatch(render, /' de ' \+ global\.UI\.formatNumber\(total\) \+ ' de '/, 'a contagem não repete "de ... de ..."');
 });
 
 // ---------------------------------------------------------------------------

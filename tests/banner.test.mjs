@@ -422,6 +422,47 @@ test('depois do upload o card mostra o arquivo e some sozinho', async () => {
     scheduler.advance(300);
     assert.equal(banner.hidden, true, 'o card do resumo deve sumir sozinho');
 
+    // O que sumiu do card continua disponível no cabeçalho e no KPI (F9).
+    const summary = document.getElementById('dataset-summary');
+    assert.match(summary.innerText, /Importações\.xlsx/, 'o resumo do cabeçalho precisa sobreviver ao timer');
+    assert.match(summary.innerText, /processo/, 'o resumo do cabeçalho precisa manter a contagem');
+    assert.notEqual(document.getElementById('kpi-processos-hint').innerText, '', 'o hint do KPI não pode ficar vazio');
+
+    await flush(20);
+  } finally {
+    restore();
+  }
+});
+
+test('resumo do cabeçalho cobre o estado vazio e trata o nome do arquivo como texto (F9)', async () => {
+  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+  const scheduler = createScheduler();
+  const { document, fileInput, listeners } = createDom();
+  const restore = installGlobals({ document, scheduler });
+
+  try {
+    new Function(app)();
+    const init = listeners.get('DOMContentLoaded')[0];
+    init();
+    await flush();
+    scheduler.advance(0);
+    await flush();
+
+    const summary = document.getElementById('dataset-summary');
+    assert.equal(summary.innerText, 'Nenhum arquivo carregado');
+    assert.equal(summary.title, 'Nenhum arquivo carregado');
+    assert.equal(document.getElementById('kpi-processos-hint').innerText, 'Aguardando carregamento de dados');
+
+    // O nome do arquivo é escrito como texto: um nome com marcação não vira HTML.
+    const hostileName = '<img src=x onerror="alert(1)">.xlsx';
+    fileInput.files = [{ name: hostileName, arrayBuffer: async () => new ArrayBuffer(8) }];
+    fileInput.dispatch('change', { target: fileInput });
+    await flush(20);
+
+    assert.match(summary.innerText, /<img src=x onerror="alert\(1\)">\.xlsx/, summary.innerText);
+    assert.equal(summary.innerHTML, '', 'o resumo não pode usar innerHTML');
+    assert.doesNotMatch(document.getElementById('kpi-processos-hint').innerText, /^$/, 'o hint do KPI não pode ficar vazio');
+
     await flush(20);
   } finally {
     restore();

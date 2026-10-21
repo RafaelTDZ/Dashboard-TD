@@ -548,6 +548,11 @@ test('remoto mais recente vence e alinha o cache local', async () => {
     assert.ok(restored, 'deve restaurar uma sessão');
     assert.match(restored.message, /REMOTO-NOVO\.xlsx/, 'o remoto mais recente deve vencer');
     assert.equal(indexedDB.store.get(SNAPSHOT_KEY).meta.name, 'REMOTO-NOVO.xlsx', 'o cache local deve ser alinhado com o remoto');
+    assert.match(
+      document.getElementById('dataset-summary').innerText,
+      /REMOTO-NOVO\.xlsx/,
+      'o resumo persistente do cabeçalho precisa refletir o dataset restaurado'
+    );
 
     await flush(20);
   } finally {

@@ -18,8 +18,8 @@
     'tab-btn-dashboard', 'tab-btn-data', 'tab-btn-integration',
     'tab-dashboard', 'tab-data', 'tab-integration',
     'style-switcher', 'style-option-modern', 'style-option-classic',
-    'banner-text', 'last-update-time', 'last-read-header',
-    'kpi-volume', 'kpi-volume-hint', 'kpi-processos', 'kpi-peso', 'kpi-ticket', 'kpi-conclusao', 'kpi-sla', 'kpi-sla-hint',
+    'banner-text', 'last-update-time', 'last-read-header', 'dataset-summary',
+    'kpi-volume', 'kpi-volume-hint', 'kpi-processos', 'kpi-processos-hint', 'kpi-peso', 'kpi-ticket', 'kpi-conclusao', 'kpi-sla', 'kpi-sla-hint',
     'filter-operacao', 'filter-mes-toggle', 'filter-mes-label', 'filter-mes-menu', 'filter-mes-all', 'filter-mes-list',
     'filter-analista', 'filter-situacao', 'filter-reg-di',
     'filter-mercadoria', 'filter-modal', 'filter-incoterm', 'filter-despachante', 'btn-reset-filters',
@@ -838,15 +838,35 @@
   function updateBanner() {
     var meta = state.meta || {};
     var isEmpty = state.isDemo || !state.dataset.length;
+    var datasetTotal = state.dataset.length;
+    var filteredTotal = Array.isArray(state.filtered) ? state.filtered.length : datasetTotal;
     var lastReadText = isEmpty
       ? 'Última leitura: aguardando arquivo'
       : 'Última leitura: ' + global.UI.formatDateTime(meta.loadedAt);
     els['last-read-header'].innerText = lastReadText;
+
+    // O resumo do cabeçalho é o único lugar que sobrevive ao timer do card de
+    // status (F9): nome do arquivo + total filtrado/total do dataset.
+    var summary = els['dataset-summary'];
     if (isEmpty) {
+      if (summary) {
+        summary.innerText = 'Nenhum arquivo carregado';
+        summary.title = 'Nenhum arquivo carregado';
+      }
       setBannerText('Nenhum arquivo carregado. Clique em <strong>Carregar Excel Atualizado</strong> para selecionar a planilha <strong>!Importações.xlsx</strong>.');
       els['last-update-time'].innerText = 'Aguardando arquivo';
       return;
     }
+
+    if (summary) {
+      var summaryCounts = filteredTotal === datasetTotal
+        ? global.UI.formatNumber(datasetTotal) + ' ' + (datasetTotal === 1 ? 'processo' : 'processos')
+        : global.UI.formatNumber(filteredTotal) + ' de ' + global.UI.formatNumber(datasetTotal) + ' processos';
+      summary.innerText = meta.name + ' · ' + summaryCounts;
+      summary.title = meta.name + ' · ' + global.UI.formatNumber(filteredTotal) + ' filtrados de ' +
+        global.UI.formatNumber(datasetTotal) + ' processos · ' + lastReadText;
+    }
+
     var ignoredText = meta.ignoredRows ? ' &bull; ' + global.UI.formatNumber(meta.ignoredRows) + ' linha(s) ignorada(s)' : '';
     var commentsText = meta.commentCount ? ' &bull; ' + global.UI.formatNumber(meta.commentCount) + ' comentário(s)' : '';
     setBannerText('<strong>' + global.UI.escapeHtml(meta.name) + '</strong>' +
@@ -929,6 +949,16 @@
       ? ' · ' + global.UI.formatNumber(foreignCurrencyCount) + ' valor(es) fora do USD'
       : '');
     els['kpi-processos'].innerText = global.UI.formatNumber(data.length);
+    var datasetTotal = state.dataset.length;
+    var selectedYear = getSelectedYear();
+    if (!datasetTotal) {
+      els['kpi-processos-hint'].innerText = 'Aguardando carregamento de dados';
+    } else if (data.length < datasetTotal) {
+      els['kpi-processos-hint'].innerText = global.UI.formatNumber(data.length) + ' de ' +
+        global.UI.formatNumber(datasetTotal) + (selectedYear != null ? ' · filtro ' + selectedYear : ' · filtro ativo');
+    } else {
+      els['kpi-processos-hint'].innerText = global.UI.formatNumber(datasetTotal) + ' registros no dataset';
+    }
     els['kpi-peso'].innerText = global.UI.formatNumber(totalPeso / 1000, 0) + ' t';
     els['kpi-ticket'].innerText = valorValues.length ? global.UI.formatCompactUSD(totalValor / valorValues.length) : '$0';
     els['kpi-conclusao'].innerText = data.length ? global.UI.formatPercent((concluidos / data.length) * 100) : '0%';
@@ -993,18 +1023,24 @@
     // O total do dataset aparece junto do total filtrado: o filtro de ano
     // padrão esconde parte dos dados e o usuário precisa enxergar isso (B9).
     var datasetTotal = state.dataset.length;
-    var filteredOut = datasetTotal - total;
-    els['table-count'].innerText = total
-      ? 'Exibindo ' + global.UI.formatNumber(start + 1) + '–' + global.UI.formatNumber(Math.min(start + state.pageSize, total)) +
-        ' de ' + global.UI.formatNumber(total) + (filteredOut > 0 ? ' de ' + global.UI.formatNumber(datasetTotal) : '') + ' registro(s)'
-      : 'Nenhum registro';
-    els['table-count'].title = total
-      ? (filteredOut > 0
-        ? global.UI.formatNumber(total) + ' de ' + global.UI.formatNumber(datasetTotal) + ' registro(s) correspondem aos filtros atuais.'
-        : global.UI.formatNumber(total) + ' registro(s) no dataset.')
-      : (datasetTotal
-        ? 'Nenhum registro corresponde aos filtros atuais. O dataset tem ' + global.UI.formatNumber(datasetTotal) + ' registro(s).'
-        : 'Nenhum registro.');
+    var pageEnd = Math.min(start + state.pageSize, total);
+    if (total) {
+      els['table-count'].innerText = 'Exibindo ' + global.UI.formatNumber(start + 1) + '–' + global.UI.formatNumber(pageEnd) +
+        ' de ' + global.UI.formatNumber(total) +
+        (total < datasetTotal
+          ? ' filtrados (' + global.UI.formatNumber(datasetTotal) + ' no total)'
+          : ' registros');
+      els['table-count'].title = total < datasetTotal
+        ? global.UI.formatNumber(total) + ' filtrados de ' + global.UI.formatNumber(datasetTotal) + ' registros no dataset.'
+        : global.UI.formatNumber(datasetTotal) + ' registros no dataset.';
+    } else {
+      els['table-count'].innerText = datasetTotal
+        ? 'Nenhum registro corresponde aos filtros (' + global.UI.formatNumber(datasetTotal) + ' no dataset)'
+        : 'Nenhum registro';
+      els['table-count'].title = datasetTotal
+        ? 'Nenhum registro corresponde aos filtros. O dataset tem ' + global.UI.formatNumber(datasetTotal) + ' registros.'
+        : 'Nenhum registro.';
+    }
     els['page-info'].innerText = 'Página ' + state.page + ' de ' + pages;
     els['page-prev'].disabled = state.page <= 1;
     els['page-next'].disabled = state.page >= pages;
