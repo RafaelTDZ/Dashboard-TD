@@ -18,10 +18,12 @@ import test from 'node:test';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const realSetImmediate = globalThis.setImmediate;
 
-// table.js é carregado antes de app.js no index.html; aqui fazemos o mesmo
-// para que o app encontre global.DashboardTable ao ser avaliado.
+// table.js e banner.js são carregados antes de app.js no index.html; aqui
+// fazemos o mesmo para que o app encontre os módulos ao ser avaliado.
 const tableSource = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 new Function(tableSource)();
+const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
+new Function(bannerSource)();
 
 function createClassList() {
   const names = new Set();

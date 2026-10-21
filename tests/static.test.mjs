@@ -10,6 +10,7 @@ const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const htmlPath = join(root, 'index.html');
 const html = readFileSync(htmlPath, 'utf8');
 const table = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
+const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
 
 function jsFiles(directory) {
   return readdirSync(directory, { withFileTypes: true })
@@ -273,12 +274,12 @@ test('card de status é transitório com arquivo e persistente no estado vazio',
   assert.match(styles, /#status-banner\.is-fading-out\s*\{[^}]*opacity: 0;/);
 
   // refresh()/restoreState() atualizam o texto do card, mas nunca a visibilidade.
-  const updateBanner = app.match(/function updateBanner\(\)\s*\{([\s\S]*?)\n  \}/)[1];
+  const updateBanner = bannerSource.match(/function updateBanner\(\)\s*\{([\s\S]*?)\n    \}/)[1];
   assert.doesNotMatch(updateBanner, /hidden|classList/);
 
   // O texto do resumo mora no #banner-text (o próprio card de status).
-  assert.match(app, /function setBannerText\(html\)/);
-  const setBannerText = app.match(/function setBannerText\(html\)\s*\{([\s\S]*?)\n  \}/)[1];
+  assert.match(bannerSource, /function setBannerText\(html\)/);
+  const setBannerText = bannerSource.match(/function setBannerText\(html\)\s*\{([\s\S]*?)\n    \}/)[1];
   assert.match(setBannerText, /els\['banner-text'\]/);
 
   // A importação revela o card em modo transitório.
@@ -292,18 +293,18 @@ test('card de status é transitório com arquivo e persistente no estado vazio',
   );
 
   // E ele volta a se esconder sozinho, fechando de verdade via hideStatusBanner().
-  assert.match(app, /var STATUS_BANNER_VISIBLE_MS = \d+;/);
-  const show = app.match(/function showStatusBanner\(transient\)\s*\{([\s\S]*?)\n  \}/)[1];
+  assert.match(bannerSource, /var STATUS_BANNER_VISIBLE_MS = \d+;/);
+  const show = bannerSource.match(/function showStatusBanner\(transient\)\s*\{([\s\S]*?)\n    \}/)[1];
   assert.match(show, /setTimeout/);
   assert.match(show, /hideStatusBanner\(\)/);
   assert.match(show, /if \(!transient\) return;/, 'sem timer quando o card deve ficar visível');
-  const hide = app.match(/function hideStatusBanner\(\)\s*\{([\s\S]*?)\n  \}/)[1];
+  const hide = bannerSource.match(/function hideStatusBanner\(\)\s*\{([\s\S]*?)\n    \}/)[1];
   assert.match(hide, /clearStatusBannerTimers\(banner\)/);
   assert.match(hide, /banner\.hidden = true/);
 
   // Falha fatal de init mostra o card sem destruir os filhos usados por updateBanner().
-  assert.match(app, /function showStatusBannerError\(message\)/);
-  assert.doesNotMatch(app, /banner\.textContent = error\.message/);
+  assert.match(bannerSource, /function showStatusBannerError\(message\)/);
+  assert.doesNotMatch(bannerSource, /banner\.textContent = error\.message/);
 });
 
 

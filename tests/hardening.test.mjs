@@ -13,6 +13,7 @@ const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const html = readFileSync(join(root, 'index.html'), 'utf8');
 const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
 const table = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
+const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
 const charts = readFileSync(join(root, 'assets', 'js', 'charts.js'), 'utf8');
 
 function tagOf(source, id) {
@@ -50,7 +51,7 @@ test('o card de status nasce escondido e é revelado pelo app nos dois modos', (
   assert.doesNotMatch(bannerBlock, /id="dataset-summary"/, 'o resumo não pode morar no card de status');
 
   // O app sabe revelar nos dois modos e sabe esconder de novo.
-  const show = bodyOf(app, 'function showStatusBanner\\(transient\\)');
+  const show = bodyOf(bannerSource, 'function showStatusBanner\\(transient\\)', 4);
   assert.match(show, /banner\.hidden = false/, 'o card precisa ser revelado');
   assert.match(show, /STATUS_BANNER_VISIBLE_MS/);
 
@@ -67,24 +68,24 @@ test('o card de status nasce escondido e é revelado pelo app nos dois modos', (
 });
 
 test('updateBanner escreve o resumo no card e o erro fatal trava a mensagem', () => {
-  const update = bodyOf(app, 'function updateBanner\\(\\)');
+  const update = bodyOf(bannerSource, 'function updateBanner\\(\\)', 4);
   assert.match(update, /setBannerText\(/, 'o resumo precisa ser escrito');
   assert.match(update, /last-update-time/);
   assert.match(update, /Nenhum arquivo carregado/, 'o estado vazio precisa ser observável');
 
   // O texto mora no #banner-text do próprio card de status.
-  const setText = bodyOf(app, 'function setBannerText\\(html\\)');
+  const setText = bodyOf(bannerSource, 'function setBannerText\\(html\\)', 4);
   assert.match(setText, /els\['banner-text'\]/);
   assert.match(setText, /statusBannerLocked/, 'setBannerText precisa respeitar o bloqueio de erro');
 
   // O erro fatal fica no mesmo campo, mas trava o card para que um refresh()
   // posterior não apague a mensagem (B3).
-  const fatal = bodyOf(app, 'function showStatusBannerError\\(message\\)');
+  const fatal = bodyOf(bannerSource, 'function showStatusBannerError\\(message\\)', 4);
   assert.match(fatal, /els\['banner-text'\]/);
   assert.match(fatal, /statusBannerLocked = true/);
 
   // A importação reabilita o card (o erro deixa de valer).
-  const transient = bodyOf(app, 'function showTransientUpdateBanner\\(\\)');
+  const transient = bodyOf(bannerSource, 'function showTransientUpdateBanner\\(\\)', 4);
   assert.match(transient, /statusBannerLocked = false/);
 });
 
