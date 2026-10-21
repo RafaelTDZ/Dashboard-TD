@@ -6,9 +6,28 @@
 (function (global) {
   'use strict';
 
+  // F6 — limite de escala do snapshot único.
+  //
+  // O banco guarda o dataset inteiro em uma linha JSONB e cada importação
+  // reenvia o array. Medido em 21/10/2026 (ver ANALISE.md/F6):
+  //
+  //   escala | registros | payload  | INSERT (triggers) | 4G (10 Mbit/s)
+  //   1x     |   1.944   | 2,4 MB   |   0,17 s          |  2,0 s
+  //   2x     |   3.894   | 4,9 MB   |   0,43 s          |  3,9 s
+  //   5x     |   9.744   | 12,5 MB  |   1,02 s          |  9,7 s
+  //   10x    |  19.444   | 25,1 MB  |   2,22 s          | 19,4 s
+  //
+  // O banco aguenta (o statement_timeout do papel `anon` é de 3 s), mas o
+  // transporte não: 6 MB leva ~4,8 s para subir em 4G — um terço do timeout de
+  // 15 s do POST. Acima disso a importação falha de forma opaca (timeout do
+  // POST ou recusa do banco), então o arquivo é recusado aqui, antes de
+  // qualquer escrita, com uma mensagem clara.
+  var MAX_SNAPSHOT_BYTES = 6 * 1024 * 1024;
+
   function create(deps) {
     var state = deps.state;
     var prepareRecord = deps.prepareRecord;
+    var toPersistedRecord = deps.toPersistedRecord;
     var canonicalizeDataset = deps.canonicalizeDataset;
     var buildSearchIndex = deps.buildSearchIndex;
     var populateFilterOptions = deps.populateFilterOptions;
@@ -21,6 +40,16 @@
     var beginSnapshotValidation = deps.beginSnapshotValidation;
     var endSnapshotValidation = deps.endSnapshotValidation;
     var persistNow = deps.persistNow;
+
+    if (typeof toPersistedRecord !== 'function') {
+      throw new TypeError('DashboardImport requer toPersistedRecord');
+    }
+
+    // O limite pode ser sobrescrito (só os testes fazem isso); em produção
+    // vale sempre o valor do módulo.
+    var maxSnapshotBytes = typeof deps.maxSnapshotBytes === 'number' && isFinite(deps.maxSnapshotBytes) && deps.maxSnapshotBytes > 0
+      ? deps.maxSnapshotBytes
+      : MAX_SNAPSHOT_BYTES;
 
     // Versão da biblioteca SheetJS vendorizada. Entra na URL do <script> para
     // invalidar o cache do navegador quando a lib for trocada: a query string
@@ -71,6 +100,41 @@
       var label = input.closest('.upload-label');
       if (label) label.classList.toggle('is-loading', loading);
       input.disabled = loading;
+    }
+
+    // Tamanho, em bytes UTF-8, do payload que iria para o banco. O que é
+    // medido é a CÓPIA ENXUTA (sem _search e sem campos vazios) — a mesma
+    // que persistence.js envia.
+    function measurePayloadBytes(records) {
+      var persisted = records.map(toPersistedRecord);
+      var json = JSON.stringify(persisted);
+      if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(json).length;
+      // Fallback para navegadores sem TextEncoder: estima a diferença entre
+      // UTF-16 e UTF-8 contando os caracteres acima de U+07FF.
+      var extra = 0;
+      for (var index = 0; index < json.length; index += 1) {
+        var code = json.charCodeAt(index);
+        if (code < 0x80) continue;
+        if (code < 0x800) extra += 1;
+        else if (code < 0x10000) extra += 2;
+        else extra += 3;
+      }
+      return json.length + extra;
+    }
+
+    // Arquivo grande demais: a importação é recusada ANTES de qualquer
+    // alteração (nada muda na tela e nada é enviado ao banco).
+    function showOversizedImport(file, bytes) {
+      var limitMb = Math.round(maxSnapshotBytes / (1024 * 1024));
+      var sizeMb = Math.round(bytes / (1024 * 1024));
+      var html = '<p class="mb-3 text-slate-300">O arquivo <strong class="text-slate-200">' + global.UI.escapeHtml(file.name) +
+        '</strong> gera <strong class="text-amber-300">' + global.UI.formatNumber(sizeMb) + ' MB</strong> de dados e o limite do painel é ' +
+        '<strong class="text-amber-300">' + global.UI.formatNumber(limitMb) + ' MB</strong>.</p>' +
+        '<p class="mb-3 text-slate-400">Nada foi alterado: o snapshot anterior foi mantido. ' +
+        'Importe a planilha em partes menores (por exemplo, por ano) para caber no limite.</p>';
+      global.UI.openModal({ title: 'Arquivo grande demais', html: html });
+      global.UI.toast('"' + file.name + '" não foi importado: o arquivo passa do limite de ' +
+        global.UI.formatNumber(limitMb) + ' MB.', 'error', 'Arquivo grande demais');
     }
 
     // Executa a tarefa no próximo momento ocioso do navegador (ou no próximo
@@ -300,6 +364,14 @@
         // valores finais dos campos.
         nextRecords.forEach(buildSearchIndex);
         result.fileName = file.name;
+        // F6 — o limite de escala é conferido antes de comparar, gravar ou
+        // tocar na tela: um arquivo grande demais é recusado com mensagem
+        // clara, em vez de estourar o timeout do POST ou a capacidade do banco.
+        var payloadBytes = measurePayloadBytes(nextRecords);
+        if (payloadBytes > maxSnapshotBytes) {
+          showOversizedImport(file, payloadBytes);
+          return null;
+        }
         return fetchComparisonSnapshot().then(function (comparisonSource) {
           var remoteCompared = comparisonSource.available;
           var previousRecords = remoteCompared
@@ -382,9 +454,15 @@
 
     return {
       handleFileUpload: handleFileUpload,
-      handleRejectedSnapshot: handleRejectedSnapshot
+      handleRejectedSnapshot: handleRejectedSnapshot,
+      measurePayloadBytes: measurePayloadBytes
     };
   }
 
-  global.DashboardImport = { create: create };
+  global.DashboardImport = {
+    create: create,
+    // Limite de escala publicado: o teste de carga (tools/loadtest.mjs) e os
+    // testes leem o mesmo número que a produção usa.
+    MAX_SNAPSHOT_BYTES: MAX_SNAPSHOT_BYTES
+  };
 })(globalThis);

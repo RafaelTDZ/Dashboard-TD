@@ -120,6 +120,8 @@
   var importer = global.DashboardImport.create({
     state: state,
     prepareRecord: normalize.prepareRecord,
+    // A cópia enxuta é usada para medir o payload antes de enviar (F6).
+    toPersistedRecord: normalize.toPersistedRecord,
     canonicalizeDataset: normalize.canonicalizeDataset,
     buildSearchIndex: normalize.buildSearchIndex,
     populateFilterOptions: filters.populateFilterOptions,

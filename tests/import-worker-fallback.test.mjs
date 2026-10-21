@@ -157,6 +157,7 @@ async function runImport(options = {}) {
   const deps = {
     state: state,
     prepareRecord: (record) => record,
+    toPersistedRecord: (record) => record,
     canonicalizeDataset: () => {},
     buildSearchIndex: () => {},
     populateFilterOptions: () => {},
