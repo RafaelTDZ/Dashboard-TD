@@ -1648,11 +1648,34 @@
       : Promise.resolve(false);
 
     return remoteSave.then(function (savedRemotely) {
+      // O save pode devolver `true` (sem representação) ou o snapshot já
+      // normalizado com o created_at do servidor (F2).
+      var savedSnapshot = savedRemotely && typeof savedRemotely === 'object' ? savedRemotely : null;
+      var serverLoadedAt = savedSnapshot && savedSnapshot.meta ? new Date(savedSnapshot.meta.loadedAt) : null;
+      var hasServerLoadedAt = serverLoadedAt !== null && !Number.isNaN(serverLoadedAt.getTime());
+      var remoteSaved = savedRemotely === true || !!(savedSnapshot && savedSnapshot.meta && hasServerLoadedAt);
+      var loadedAtChanged = false;
+
+      if (hasServerLoadedAt) {
+        // O loadedAt original foi o que enviamos ao banco; guarda-o apenas para
+        // diagnóstico. A ordenação e a "Última leitura" usam created_at.
+        snapshot.meta.clientLoadedAt = savedSnapshot.meta.clientLoadedAt || snapshot.meta.loadedAt;
+        snapshot.meta.loadedAt = serverLoadedAt.toISOString();
+        if (state.meta) {
+          var previousLoadedAt = new Date(state.meta.loadedAt).getTime();
+          state.meta.loadedAt = serverLoadedAt;
+          loadedAtChanged = !Number.isFinite(previousLoadedAt) || previousLoadedAt !== serverLoadedAt.getTime();
+        }
+      }
+
       // O IndexedDB permanece apenas como cache offline; o Supabase é a fonte principal.
       return idbSet(SNAPSHOT_KEY, snapshot).then(function () {
+        // Só o texto de "Última leitura" muda aqui; os gráficos não são
+        // redesenhados porque o dataset é o mesmo.
+        if (loadedAtChanged) updateBanner();
         return {
-          saved: savedRemotely === true,
-          remote: savedRemotely === true,
+          saved: remoteSaved,
+          remote: remoteSaved,
           validationError: null
         };
       });

@@ -29,7 +29,7 @@
           throw failure;
         });
       }
-      // 201/204 chegam sem corpo quando usamos "Prefer: return=minimal";
+      // 201/204 podem chegar sem corpo (return=minimal ou proxy antigo);
       // chamar response.json() nesses casos acusava falha mesmo com o dado salvo.
       return response.text().then(function (body) {
         if (!body) return null;
@@ -42,34 +42,50 @@
     });
   }
 
+  // A linha do banco é a fonte do snapshot. `created_at` (relógio do servidor)
+  // é o único valor usado para ordenar nuvem x cache e para "Última leitura";
+  // o `loadedAt` enviado pelo cliente fica só como diagnóstico (F2).
+  function rowToSnapshot(row) {
+    var metadata = row.metadata || {};
+    var snapshot = {
+      version: global.DashboardState.SNAPSHOT_VERSION,
+      records: row.records,
+      meta: Object.assign({}, metadata, {
+        name: row.file_name,
+        sheetName: row.sheet_name,
+        loadedAt: row.created_at
+      })
+    };
+    if (metadata.loadedAt) snapshot.meta.clientLoadedAt = metadata.loadedAt;
+    return snapshot;
+  }
+
   function saveSnapshot(snapshot) {
     if (!snapshot || !snapshot.meta || !Array.isArray(snapshot.records)) return Promise.resolve(false);
     return request(TABLE, {
       method: 'POST',
-      headers: { Prefer: 'return=minimal' },
+      headers: { Prefer: 'return=representation' },
       body: JSON.stringify({
         file_name: snapshot.meta.name,
         sheet_name: snapshot.meta.sheetName || '',
         records: snapshot.records,
         metadata: snapshot.meta
       })
-    }).then(function () { return true; });
+    }).then(function (body) {
+      // Com return=representation o PostgREST devolve a linha inserida (array
+      // com um item) e o app já conhece o created_at do servidor. Corpo vazio
+      // (ex.: proxy antigo) continua sendo sucesso, só sem o horário oficial.
+      var row = Array.isArray(body) ? body[0] : body;
+      if (!row || typeof row !== 'object' || !Array.isArray(row.records) || !row.created_at) return true;
+      return rowToSnapshot(row);
+    });
   }
 
   function getLatestSnapshot() {
     return request(TABLE + '?select=file_name,sheet_name,records,metadata,created_at&order=created_at.desc,id.desc&limit=1')
       .then(function (rows) {
         if (!rows || !rows.length) return null;
-        var row = rows[0];
-        return {
-          version: global.DashboardState.SNAPSHOT_VERSION,
-          records: row.records,
-          meta: Object.assign({}, row.metadata || {}, {
-            name: row.file_name,
-            sheetName: row.sheet_name,
-            loadedAt: (row.metadata && row.metadata.loadedAt) || row.created_at
-          })
-        };
+        return rowToSnapshot(rows[0]);
       });
   }
 

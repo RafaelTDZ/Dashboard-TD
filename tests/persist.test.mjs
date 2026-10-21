@@ -555,10 +555,89 @@ test('remoto mais recente vence e alinha o cache local', async () => {
   }
 });
 
-// --- supabase.js: o salvamento usa "Prefer: return=minimal" e o Supabase
-// responde 201 sem corpo. Antes, o app tentava interpretar esse corpo como JSON,
-// acusava falha ("Persistência indisponível") mesmo com o dataset já salvo e o
-// usuário ficava sem saber se o banco tinha recebido o arquivo.
+test('cache local pós-importação usa o created_at do servidor', async () => {
+  const scheduler = createScheduler();
+  const { document, fileInput, listeners } = createDom();
+  const indexedDB = createIndexedDb();
+  const toasts = [];
+  const clientLoadedAt = '2030-01-01T00:00:00.000Z';
+  const serverLoadedAt = '2026-10-15T10:01:00+00:00';
+  const spy = {
+    saves: [],
+    storage: {
+      saveSnapshot: (snapshot) => {
+        spy.saves.push(snapshot);
+        return Promise.resolve({
+          version: 1,
+          records: snapshot.records,
+          meta: {
+            name: 'Importações.xlsx',
+            sheetName: 'Importações',
+            rowCount: 2,
+            loadedAt: serverLoadedAt,
+            clientLoadedAt
+          }
+        });
+      },
+      getLatestSnapshot: () => Promise.resolve(null)
+    }
+  };
+  const ui = createUiStub(toasts);
+  // O stub padrão devolve sempre a mesma data; aqui queremos enxergar o valor
+  // que a UI recebeu do estado depois do save.
+  ui.formatDateTime = (value) => {
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? '—' : date.toISOString();
+  };
+  const restore = installGlobals({ document, scheduler, indexedDB, ui, supabase: spy.storage });
+
+  try {
+    new Function(appSource)();
+    const init = listeners.get('DOMContentLoaded')[0];
+    init();
+    await flush();
+    scheduler.advance(0);
+    await flush();
+
+    fileInput.files = [{ name: 'Importações.xlsx', arrayBuffer: async () => new ArrayBuffer(8) }];
+    fileInput.dispatch('change', { target: fileInput });
+    await flush(30);
+    scheduler.advance(600);
+    await flush(30);
+
+    assert.equal(spy.saves.length, 1, 'a importação deve gravar no Supabase');
+    assert.notEqual(spy.saves[0].meta.loadedAt, serverLoadedAt, 'o payload ainda carrega o horário local do cliente');
+
+    const stored = indexedDB.store.get(SNAPSHOT_KEY);
+    assert.equal(stored.meta.loadedAt, '2026-10-15T10:01:00.000Z', 'o cache local deve usar o created_at do servidor');
+    assert.equal(stored.meta.clientLoadedAt, clientLoadedAt, 'o horário do cliente fica só para diagnóstico');
+
+    assert.equal(
+      document.getElementById('last-read-header').innerText,
+      'Última leitura: 2026-10-15T10:01:00.000Z',
+      'o cabeçalho deve mostrar o horário do servidor'
+    );
+    assert.equal(
+      document.getElementById('last-update-time').innerText,
+      'Última leitura: 2026-10-15T10:01:00.000Z',
+      'o card de status deve mostrar o horário do servidor'
+    );
+    assert.ok(!document.getElementById('last-update-time').innerText.includes('2030'), 'o horário futuro do cliente não pode aparecer');
+
+    assert.ok(
+      toasts.some((entry) => entry.title === 'Excel carregado' && entry.type === 'success'),
+      'o snapshot devolvido pelo banco deve contar como salvo no remoto'
+    );
+
+    await flush(20);
+  } finally {
+    restore();
+  }
+});
+
+// --- supabase.js: o salvamento usa "Prefer: return=representation" desde o F2,
+// então o Supabase devolve a linha gravada com o created_at do servidor. O
+// corpo vazio de um proxy antigo continua sendo aceito como sucesso.
 
 const supabaseSource = readFileSync(join(root, 'assets', 'js', 'supabase.js'), 'utf8');
 
@@ -597,7 +676,37 @@ test('salvamento aceita resposta 201 sem corpo sem acusar falha', async () => {
     assert.equal(saved, true, 'o dataset deve ser considerado salvo mesmo com corpo vazio');
     assert.equal(stub.calls.length, 1);
     assert.equal(stub.calls[0].options.method, 'POST');
+    assert.equal(stub.calls[0].options.headers.Prefer, 'return=representation', 'o save precisa pedir o created_at de volta');
     assert.match(stub.calls[0].url, /\/rest\/v1\/excel_imports$/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('salvamento devolve o snapshot com created_at do servidor', async () => {
+  const clientLoadedAt = '2030-01-01T00:00:00.000Z';
+  const created_at = '2026-10-15T10:01:00+00:00';
+  const row = {
+    file_name: 'Importações.xlsx',
+    sheet_name: '!Importações',
+    records: [{ valor: 1 }],
+    metadata: { loadedAt: clientLoadedAt, rowCount: 1 },
+    created_at
+  };
+  const stub = stubFetch(() => fakeResponse({ status: 201, body: JSON.stringify([row]) }));
+  try {
+    new Function(supabaseSource)();
+    const saved = await globalThis.SupabaseStorage.saveSnapshot({
+      meta: { name: 'Importações.xlsx', sheetName: '!Importações', loadedAt: clientLoadedAt },
+      records: [{ valor: 1 }]
+    });
+    assert.ok(saved && typeof saved === 'object', 'deve devolver o snapshot retornado pelo banco');
+    assert.equal(saved.meta.name, 'Importações.xlsx');
+    assert.equal(saved.meta.sheetName, '!Importações');
+    assert.equal(saved.meta.loadedAt, created_at);
+    assert.equal(saved.meta.clientLoadedAt, clientLoadedAt);
+    assert.equal(saved.records.length, 1);
+    assert.equal(saved.version, globalThis.DashboardState.SNAPSHOT_VERSION);
   } finally {
     stub.restore();
   }
@@ -642,12 +751,13 @@ test('erro do trigger do Supabase preserva código e detalhes para a interface',
   }
 });
 
-test('leitura do último snapshot converte a linha do Supabase', async () => {
+test('leitura do último snapshot usa created_at do servidor', async () => {
+  const clientLoadedAt = '2030-01-01T00:00:00.000Z';
   const row = {
     file_name: 'Importações.xlsx',
     sheet_name: '!Importações',
     records: [{ valor: 10 }],
-    metadata: { loadedAt: '2026-10-15T10:00:00.000Z', rowCount: 1 },
+    metadata: { loadedAt: clientLoadedAt, rowCount: 1 },
     created_at: '2026-10-15T10:01:00+00:00'
   };
   const stub = stubFetch(() => fakeResponse({ status: 200, body: JSON.stringify([row]) }));
@@ -657,10 +767,57 @@ test('leitura do último snapshot converte a linha do Supabase', async () => {
     assert.ok(snapshot, 'deve retornar um snapshot');
     assert.equal(snapshot.meta.name, 'Importações.xlsx');
     assert.equal(snapshot.meta.sheetName, '!Importações');
-    assert.equal(snapshot.meta.loadedAt, '2026-10-15T10:00:00.000Z');
+    assert.equal(snapshot.meta.loadedAt, '2026-10-15T10:01:00+00:00', 'a ordenação deve usar o relógio do servidor');
+    assert.equal(snapshot.meta.clientLoadedAt, clientLoadedAt, 'o horário do cliente fica apenas para diagnóstico');
     assert.equal(snapshot.records.length, 1);
     assert.equal(snapshot.version, globalThis.DashboardState.SNAPSHOT_VERSION);
   } finally {
+    stub.restore();
+  }
+});
+
+test('metadata.loadedAt futuro no remoto não vence o cache local na restauração', async () => {
+  const scheduler = createScheduler();
+  const { document, listeners } = createDom();
+  const indexedDB = createIndexedDb();
+  const toasts = [];
+  indexedDB.store.set(SNAPSHOT_KEY, makeSnapshot('CACHE-NOVO.xlsx', '2026-10-15T10:00:00.000Z'));
+  const row = {
+    file_name: 'REMOTO-ANTIGO.xlsx',
+    sheet_name: 'Importações',
+    records: makeSnapshot('x.xlsx', '2026-10-13T10:00:00.000Z').records,
+    metadata: { loadedAt: '2030-01-01T00:00:00.000Z', rowCount: 1 },
+    created_at: '2026-10-13T10:00:00+00:00'
+  };
+  const stub = stubFetch(() => fakeResponse({ status: 200, body: JSON.stringify([row]) }));
+  let restoreGlobals = null;
+  try {
+    new Function(supabaseSource)();
+    // Usa o SupabaseStorage real: getLatestSnapshot deve ignorar o loadedAt
+    // futuro da metadata e comparar o created_at do servidor com o cache.
+    restoreGlobals = installGlobals({
+      document,
+      scheduler,
+      indexedDB,
+      ui: createUiStub(toasts),
+      supabase: globalThis.SupabaseStorage
+    });
+    new Function(appSource)();
+    const init = listeners.get('DOMContentLoaded')[0];
+    init();
+    await flush();
+    scheduler.advance(0);
+    await flush();
+
+    const restored = toasts.find((entry) => entry.message.indexOf('Último arquivo carregado restaurado:') === 0);
+    assert.ok(restored, 'deve restaurar uma sessão');
+    assert.match(restored.message, /CACHE-NOVO\.xlsx/, 'o remoto antigo não pode vencer por causa do loadedAt futuro');
+    assert.equal(indexedDB.store.get(SNAPSHOT_KEY).meta.name, 'CACHE-NOVO.xlsx', 'o cache local deve permanecer intacto');
+    assert.equal(stub.calls.length, 1, 'a restauração deve consultar o Supabase uma vez');
+
+    await flush(20);
+  } finally {
+    if (restoreGlobals) restoreGlobals();
     stub.restore();
   }
 });
