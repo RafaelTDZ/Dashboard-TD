@@ -53,10 +53,16 @@ test('o card de status nasce escondido e é revelado pelo app nos dois modos', (
   assert.match(show, /banner\.hidden = false/, 'o card precisa ser revelado');
   assert.match(show, /STATUS_BANNER_VISIBLE_MS/);
 
-  // O estado inicial (sem arquivo) fica visível; com arquivo, expira.
-  const init = app.match(/restoreState\(\)\.then\(function \(snapshot\)[\s\S]*?\}\)\.catch/);
+  // O estado inicial (sem arquivo) fica visível; com arquivo, expira. A
+  // restauração agora é local-first: o cache pinta a tela em presentSnapshot()
+  // e o remoto reconcilia no .then final.
+  const init = app.match(/restoreState\(\{[\s\S]*?\}\)\.then\(function \(snapshot\)[\s\S]*?\}\)\.catch/);
   assert.ok(init, 'o init precisa decidir a visibilidade do card');
-  assert.match(init[0], /showStatusBanner\(!!snapshot\)/, 'sem dataset o card fica; com dataset ele expira');
+  assert.match(init[0], /onLocal: function \(cachedSnapshot\)/, 'o cache local precisa ser apresentado antes do remoto');
+  assert.match(init[0], /presentSnapshot\(cachedSnapshot\)/, 'o primeiro paint vem do cache');
+  assert.match(init[0], /presentSnapshot\(snapshot\)/, 'o remoto reconcilia o que já está na tela');
+  const present = bodyOf(app, 'function presentSnapshot\\(snapshot, options\\)');
+  assert.match(present, /showStatusBanner\(!!snapshot\)/, 'sem dataset o card fica; com dataset ele expira');
 });
 
 test('updateBanner escreve o resumo no card e o erro fatal trava a mensagem', () => {
@@ -251,4 +257,68 @@ test('fallback de parsing não repete o parse depois que a promessa já resolveu
   assert.equal(guards.length, 2, 'a guarda `settled` precisa existir antes e dentro do parse assíncrono');
   // O caminho do Worker que falha também passa pela função com a guarda.
   assert.match(app, /worker\.onerror = function \(event\) \{[\s\S]*?parseOnMainThread\(\);/);
+});
+
+// ---------------------------------------------------------------------------
+// F3 — o HEAD do analytics tem timeout curto e limpa o timer
+// ---------------------------------------------------------------------------
+
+test('analytics aplica timeout de 5s ao HEAD e limpa o timer em sucesso e falha', async () => {
+  const analytics = readFileSync(join(root, 'assets', 'js', 'analytics.js'), 'utf8');
+  const start = analytics.indexOf('const INSIGHTS_PATH');
+  const end = analytics.indexOf('// Initialize Vercel Analytics');
+  assert.ok(start > -1 && end > start, 'não foi possível isolar a lógica do analytics');
+  const code = analytics.slice(start, end);
+  assert.match(code, /const INSIGHTS_TIMEOUT_MS = 5000;/, 'o timeout precisa ser explícito e curto');
+
+  // Avalia só o bloco puro (sem o import do vendor) para exercitar o helper
+  // com fetch/AbortController controlados.
+  const factory = new Function(
+    'fetch', 'setTimeout', 'clearTimeout', 'AbortController', 'location',
+    '"use strict";\n' + code + '\nreturn { shouldInjectAnalytics: shouldInjectAnalytics };'
+  );
+
+  let fetchCall = null;
+  let scheduled = null;
+  let cleared = null;
+  const fakeFetch = (url, options) => {
+    fetchCall = { url, options };
+    return new Promise((resolve, reject) => {
+      options.signal.addEventListener('abort', () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    });
+  };
+  const api = factory(
+    fakeFetch,
+    (fn, ms) => { scheduled = { fn, ms, id: 7 }; return 7; },
+    (id) => { cleared = id; },
+    AbortController,
+    { hostname: 'dashboard.exemplo.com' }
+  );
+
+  const pending = api.shouldInjectAnalytics();
+  assert.equal(fetchCall.url, '/_vercel/insights/script.js');
+  assert.equal(fetchCall.options.method, 'HEAD');
+  assert.ok(fetchCall.options.signal, 'o HEAD precisa usar AbortController');
+  assert.equal(scheduled.ms, 5000, 'o HEAD precisa expirar em 5s');
+
+  scheduled.fn(); // dispara o abort
+  assert.equal(await pending, false, 'falha/timeout do HEAD devolve false');
+  assert.equal(cleared, 7, 'o timer precisa ser limpo quando o fetch falha');
+
+  // Sucesso: resposta ok, timer limpo e injeção liberada.
+  let successful = null;
+  const apiOk = factory(
+    (url, options) => { successful = { url, options }; return Promise.resolve({ ok: true }); },
+    (fn, ms) => { scheduled = { fn, ms, id: 9 }; return 9; },
+    (id) => { cleared = id; },
+    AbortController,
+    { hostname: 'dashboard.exemplo.com' }
+  );
+  assert.equal(await apiOk.shouldInjectAnalytics(), true, 'HEAD ok libera a injeção');
+  assert.equal(successful.options.method, 'HEAD');
+  assert.equal(cleared, 9, 'o timer precisa ser limpo quando o fetch resolve');
 });

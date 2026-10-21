@@ -249,6 +249,25 @@
     state.page = 1;
   }
 
+  // Pinta um snapshot (ou o estado vazio) na interface inteira. É o único
+  // caminho de render da restauração: o cache local e o resultado final usam o
+  // mesmo bloco, sem duplicar populate/normalize/apply/refresh em cada ramo.
+  // `skipBanner` existe para o fluxo de importação, que já controla o card.
+  function presentSnapshot(snapshot, options) {
+    var settings = options || {};
+    if (snapshot) applySnapshotToState(snapshot);
+    else resetToDemoState();
+    populateFilterOptions();
+    normalizeFilterState();
+    applyFilterStateToInputs();
+    refresh();
+    if (settings.skipBanner !== true) {
+      // Com dataset o card mostra o que foi carregado e some sozinho; sem
+      // dataset ele fica visível com a orientação de como começar.
+      showStatusBanner(!!snapshot);
+    }
+  }
+
   function init() {
     try {
       cacheElements();
@@ -265,23 +284,27 @@
     var chartsReady = false;
     try { chartsReady = global.Charts.init(); } catch (error) { console.error('[BI Hub] Falha ao inicializar os gráficos.', error && error.message ? error.message : error); }
     if (!chartsReady) global.UI.toast('Chart.js não foi carregado. Os gráficos ficarão indisponíveis.', 'error', 'Falha de dependência');
-    restoreState().then(function (snapshot) {
+    // Guarda o snapshot já pintado pelo cache local. Se o remoto devolver o
+    // mesmo objeto, o segundo render é desnecessário (só restam os toasts).
+    var presentedSnapshot = null;
+    restoreState({
+      // Local-first: o cache vai para a tela assim que o IndexedDB responde,
+      // sem esperar o Supabase. O remoto reconcilia depois, se for mais novo.
+      onLocal: function (cachedSnapshot) {
+        presentedSnapshot = cachedSnapshot;
+        presentSnapshot(cachedSnapshot);
+      }
+    }).then(function (snapshot) {
       if (snapshot) {
-        applySnapshotToState(snapshot);
+        if (snapshot !== presentedSnapshot) presentSnapshot(snapshot);
         global.UI.toast('Último arquivo carregado restaurado: ' + snapshot.meta.name, 'info', 'Sessão restaurada');
         if (state.meta.parserVersion !== global.ETL.PARSER_VERSION) {
           global.UI.toast('Os dados salvos foram mantidos. Reimporte o Excel para aplicar as correções do importador.', 'warning', 'Reimportação recomendada');
         }
-      } else {
-        resetToDemoState();
+      } else if (!presentedSnapshot) {
+        // Sem snapshot e sem cache válido: estado vazio persistente.
+        presentSnapshot(null);
       }
-      populateFilterOptions();
-      normalizeFilterState();
-      applyFilterStateToInputs();
-      refresh();
-      // Com dataset, o card mostra o que foi carregado e some sozinho. Sem
-      // dataset, ele fica visível com a orientação de como começar.
-      showStatusBanner(!!snapshot);
     }).catch(function (error) {
       console.error('Falha ao inicializar o dataset.', error);
       resetToDemoState();
@@ -1341,7 +1364,14 @@
         ' valor(es) em ' + foreignCurrencyEntries.join(', ') + ' foram preservados sem conversão para USD.'
       : '';
     var comparisonMessage = formatComparisonSummary(comparison, remoteCompared);
-    var persistenceMessage = persistence && persistence.saved ? '' : ' O arquivo ficou salvo apenas neste navegador.';
+    // Se o POST estourou o timeout de 15 s, o arquivo não chegou ao banco, mas
+    // o cache local foi atualizado em persistState(). A mensagem diz isso de
+    // forma explícita em vez do genérico "salvo apenas neste navegador".
+    var persistenceMessage = persistence && persistence.saved
+      ? ''
+      : (persistence && persistence.error && persistence.error.timeout
+        ? ' O banco não respondeu em 15s; o arquivo ficou salvo apenas neste navegador.'
+        : ' O arquivo ficou salvo apenas neste navegador.');
     global.UI.toast('"' + file.name + '" importado: ' + global.UI.formatNumber(result.totalRows) +
       ' processo(s) na guia "' + result.sheetName + '".' + ignoredMessage + commentMessage + foreignCurrencyMessage +
       comparisonMessage + persistenceMessage,
@@ -1353,13 +1383,8 @@
     // importado enquanto este arquivo era enviado); o snapshot capturado antes
     // do upload é apenas a reserva quando a restauração não encontra nada.
     return restoreState().then(function (chosen) {
-      var target = chosen || snapshot;
-      if (target) applySnapshotToState(target);
-      else resetToDemoState();
-      populateFilterOptions();
-      normalizeFilterState();
-      applyFilterStateToInputs();
-      refresh();
+      // O fluxo de importação já controla o card de status: não o reexibe aqui.
+      presentSnapshot(chosen || snapshot, { skipBanner: true });
     });
   }
 
@@ -1729,7 +1754,11 @@
     });
   }
 
-  function restoreState() {
+  function restoreState(options) {
+    var onLocal = options && typeof options.onLocal === 'function' ? options.onLocal : null;
+    // As duas leituras começam em paralelo. O remoto pode ser lento (ou estar
+    // pendurado até o timeout de 15 s do supabase.js); o cache local não pode
+    // ficar esperando por ele para pintar a primeira tela.
     var remoteRestore = global.SupabaseStorage && global.SupabaseStorage.getLatestSnapshot
       ? global.SupabaseStorage.getLatestSnapshot().catch(function (error) {
         console.error('[BI Hub] Falha ao restaurar do Supabase.', error);
@@ -1737,10 +1766,19 @@
       })
       : Promise.resolve(null);
 
-    return remoteRestore.then(function (remoteSnapshot) {
-      return idbGet(SNAPSHOT_KEY).then(function (cachedSnapshot) {
+    var localRestore = idbGet(SNAPSHOT_KEY)
+      .then(function (cachedSnapshot) {
+        return global.DashboardState.isValidSnapshot(cachedSnapshot) ? cachedSnapshot : null;
+      })
+      .catch(function () { return null; });
+
+    return localRestore.then(function (cachedSnapshot) {
+      // Primeiro paint: entrega o cache válido assim que o IndexedDB responde,
+      // sem aguardar o Supabase. O remoto reconcilia logo abaixo.
+      if (onLocal && cachedSnapshot) onLocal(cachedSnapshot);
+      return remoteRestore.then(function (remoteSnapshot) {
         var remoteOk = global.DashboardState.isValidSnapshot(remoteSnapshot);
-        var cacheOk = global.DashboardState.isValidSnapshot(cachedSnapshot);
+        var cacheOk = cachedSnapshot !== null;
         if (!remoteOk && !cacheOk) return null;
 
         var chosen = remoteOk ? remoteSnapshot : cachedSnapshot;

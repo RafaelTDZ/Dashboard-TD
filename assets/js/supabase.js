@@ -4,6 +4,37 @@
   var SUPABASE_URL = 'https://bsczvemaqvladupmdpgl.supabase.co';
   var SUPABASE_KEY = 'sb_publishable__yjnKEx9-sdsKj1d89JpnA_fVj7al9N';
   var TABLE = 'excel_imports';
+  // Sem timeout, uma rede instável deixava a restauração (e a importação)
+  // presa para sempre: o fetch podia ficar pendurado sem nunca resolver nem
+  // rejeitar. O AbortController encerra a requisição e o erro vira um aviso
+  // explícito para a interface. Navegadores sem AbortController continuam
+  // funcionando, porém sem o prazo (fallback aceitável).
+  var REQUEST_TIMEOUT_MS = 15000;
+
+  function fetchWithTimeout(url, options, timeoutMs) {
+    var requestOptions = Object.assign({}, options);
+    var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = null;
+    if (controller) {
+      requestOptions.signal = controller.signal;
+      timer = setTimeout(function () { controller.abort(); }, timeoutMs || REQUEST_TIMEOUT_MS);
+    }
+    return fetch(url, requestOptions).catch(function (error) {
+      if (error && error.name === 'AbortError') {
+        var timeoutError = new Error('Supabase não respondeu em ' + Math.round((timeoutMs || REQUEST_TIMEOUT_MS) / 1000) + 's.');
+        timeoutError.code = 'TIMEOUT';
+        timeoutError.timeout = true;
+        throw timeoutError;
+      }
+      throw error;
+    }).then(function (response) {
+      if (timer) clearTimeout(timer);
+      return response;
+    }, function (error) {
+      if (timer) clearTimeout(timer);
+      throw error;
+    });
+  }
 
   function request(path, options) {
     var requestOptions = options || {};
@@ -13,7 +44,7 @@
       'Content-Type': 'application/json'
     }, requestOptions.headers || {});
 
-    return fetch(SUPABASE_URL + '/rest/v1/' + path, requestOptions).then(function (response) {
+    return fetchWithTimeout(SUPABASE_URL + '/rest/v1/' + path, requestOptions).then(function (response) {
       if (!response.ok) {
         return response.text().then(function (body) {
           var payload = null;

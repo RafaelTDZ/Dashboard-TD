@@ -670,6 +670,13 @@ function fakeResponse(options) {
   };
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
 test('salvamento aceita resposta 201 sem corpo sem acusar falha', async () => {
   const stub = stubFetch(() => fakeResponse({ status: 201, body: '' }));
   try {
@@ -824,5 +831,186 @@ test('metadata.loadedAt futuro no remoto não vence o cache local na restauraç�
   } finally {
     if (restoreGlobals) restoreGlobals();
     stub.restore();
+  }
+});
+
+test('getLatestSnapshot aborta após 15s e devolve erro de timeout', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  let scheduled = null;
+  let cleared = null;
+  let requestOptions = null;
+  globalThis.setTimeout = (fn, ms) => { scheduled = { fn, ms, id: 42 }; return 42; };
+  globalThis.clearTimeout = (id) => { cleared = id; };
+  globalThis.fetch = (url, options) => {
+    requestOptions = options;
+    return new Promise((resolve, reject) => {
+      options.signal.addEventListener('abort', () => {
+        const error = new Error('The operation was aborted.');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    });
+  };
+
+  try {
+    new Function(supabaseSource)();
+    const promise = globalThis.SupabaseStorage.getLatestSnapshot();
+    assert.ok(scheduled, 'o timeout precisa ser agendado');
+    assert.equal(scheduled.ms, 15000, 'o fetch remoto tem 15s de prazo');
+    assert.equal(requestOptions.signal.aborted, false, 'o sinal começa ativo');
+
+    scheduled.fn(); // simula o relógio chegando aos 15s
+
+    await assert.rejects(promise, (error) => {
+      assert.match(error.message, /não respondeu em 15s/);
+      assert.equal(error.code, 'TIMEOUT');
+      assert.equal(error.timeout, true, 'a interface usa error.timeout para a mensagem de importação');
+      return true;
+    });
+    assert.equal(requestOptions.signal.aborted, true, 'o AbortController precisa abortar o fetch');
+    assert.equal(cleared, 42, 'o timer precisa ser limpo depois da falha');
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    delete globalThis.SupabaseStorage;
+  }
+});
+
+test('cache local é pintado sem esperar o Supabase pendurado', async () => {
+  const scheduler = createScheduler();
+  const { document, listeners } = createDom();
+  const indexedDB = createIndexedDb();
+  const toasts = [];
+  const cache = makeSnapshot('CACHE-LOCAL.xlsx', '2026-10-15T10:00:00.000Z');
+  indexedDB.store.set(SNAPSHOT_KEY, cache);
+  const remote = createDeferred();
+  const spy = {
+    saves: [],
+    storage: {
+      saveSnapshot: () => Promise.resolve(true),
+      getLatestSnapshot: () => remote.promise
+    }
+  };
+  const restore = installGlobals({ document, scheduler, indexedDB, ui: createUiStub(toasts), supabase: spy.storage });
+
+  try {
+    new Function(appSource)();
+    const init = listeners.get('DOMContentLoaded')[0];
+    init();
+    // Sem scheduler.advance(15000): o remoto continua pendurado.
+    await flush();
+
+    assert.match(
+      document.getElementById('dataset-summary').innerText,
+      /CACHE-LOCAL\.xlsx/,
+      'o cache local precisa aparecer antes de o Supabase responder'
+    );
+    assert.notEqual(document.getElementById('kpi-processos').innerText, '—', 'os KPIs precisam ser renderizados a partir do cache');
+    assert.ok(
+      !toasts.some((entry) => entry.title === 'Sessão restaurada'),
+      'o toast final só pode aparecer quando a restauração termina'
+    );
+    assert.equal(spy.saves.length, 0, 'pintar o cache não pode gravar no Supabase');
+
+    await flush(20);
+  } finally {
+    remote.resolve(null); // encerra a promessa pendente antes de restaurar os globais
+    await flush(5);
+    restore();
+  }
+});
+
+test('remoto mais novo reconcilia a tela depois do primeiro paint do cache', async () => {
+  const scheduler = createScheduler();
+  const { document, listeners } = createDom();
+  const indexedDB = createIndexedDb();
+  const toasts = [];
+  const cache = makeSnapshot('CACHE-ANTIGO.xlsx', '2026-10-13T10:00:00.000Z');
+  const remote = makeSnapshot('REMOTO-NOVO.xlsx', '2026-10-15T10:00:00.000Z');
+  indexedDB.store.set(SNAPSHOT_KEY, cache);
+  const deferred = createDeferred();
+  const spy = {
+    saves: [],
+    storage: {
+      saveSnapshot: () => Promise.resolve(true),
+      getLatestSnapshot: () => deferred.promise
+    }
+  };
+  const restore = installGlobals({ document, scheduler, indexedDB, ui: createUiStub(toasts), supabase: spy.storage });
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+
+  try {
+    new Function(appSource)();
+    const init = listeners.get('DOMContentLoaded')[0];
+    init();
+    await flush();
+
+    assert.match(document.getElementById('dataset-summary').innerText, /CACHE-ANTIGO\.xlsx/, 'o cache é o primeiro paint');
+
+    deferred.resolve(remote);
+    await flush(20);
+
+    assert.match(
+      document.getElementById('dataset-summary').innerText,
+      /REMOTO-NOVO\.xlsx/,
+      'quando o remoto chega mais novo, ele reconcilia a tela'
+    );
+    const restored = toasts.find((entry) => entry.message.indexOf('Último arquivo carregado restaurado:') === 0);
+    assert.ok(restored, 'deve restaurar uma sessão');
+    assert.match(restored.message, /REMOTO-NOVO\.xlsx/, 'o toast final reflete o snapshot reconciliado');
+    assert.equal(indexedDB.store.get(SNAPSHOT_KEY).meta.name, 'REMOTO-NOVO.xlsx', 'o cache local deve ser alinhado com o remoto');
+    assert.deepEqual(unhandled, [], 'a reconciliação não pode gerar unhandled rejection');
+  } finally {
+    process.removeListener('unhandledRejection', onUnhandled);
+    await flush(20);
+    restore();
+  }
+});
+
+test('importação com banco sem resposta avisa que o arquivo ficou só no navegador', async () => {
+  const scheduler = createScheduler();
+  const { document, fileInput, listeners } = createDom();
+  const indexedDB = createIndexedDb();
+  const toasts = [];
+  const spy = {
+    saves: [],
+    storage: {
+      saveSnapshot: () => {
+        const error = new Error('Supabase não respondeu em 15s.');
+        error.code = 'TIMEOUT';
+        error.timeout = true;
+        return Promise.reject(error);
+      },
+      getLatestSnapshot: () => Promise.resolve(null)
+    }
+  };
+  const restore = installGlobals({ document, scheduler, indexedDB, ui: createUiStub(toasts), supabase: spy.storage });
+
+  try {
+    new Function(appSource)();
+    const init = listeners.get('DOMContentLoaded')[0];
+    init();
+    await flush();
+    scheduler.advance(0);
+    await flush();
+
+    fileInput.files = [{ name: 'Importações.xlsx', arrayBuffer: async () => new ArrayBuffer(8) }];
+    fileInput.dispatch('change', { target: fileInput });
+    await flush(30);
+    scheduler.advance(600);
+    await flush(30);
+
+    const toast = toasts.find((entry) => entry.title === 'Excel carregado');
+    assert.ok(toast, 'a importação precisa terminar com um toast');
+    assert.equal(toast.type, 'warning', 'sem o banco, o aviso é de atenção');
+    assert.match(toast.message, /banco não respondeu em 15s; o arquivo ficou salvo apenas neste navegador/);
+    assert.equal(indexedDB.store.get(SNAPSHOT_KEY).meta.name, 'Importações.xlsx', 'o cache local continua sendo atualizado');
+  } finally {
+    restore();
   }
 });
