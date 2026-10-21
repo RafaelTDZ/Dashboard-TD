@@ -24,6 +24,8 @@ const tableSource = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8')
 new Function(tableSource)();
 const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
 new Function(bannerSource)();
+const persistenceSource = readFileSync(join(root, 'assets', 'js', 'persistence.js'), 'utf8');
+new Function(persistenceSource)();
 
 function createClassList() {
   const names = new Set();

@@ -21,6 +21,7 @@ const appSource = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
 const stateSource = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
 const tableSource = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
+const persistenceSource = readFileSync(join(root, 'assets', 'js', 'persistence.js'), 'utf8');
 
 // Usa o DashboardState real (validação de snapshots) em vez de um stub.
 new Function(stateSource)();
@@ -28,6 +29,7 @@ new Function(stateSource)();
 // fazemos o mesmo para que o app encontre os módulos ao ser avaliado.
 new Function(tableSource)();
 new Function(bannerSource)();
+new Function(persistenceSource)();
 
 const SNAPSHOT_KEY = 'snapshot';
 

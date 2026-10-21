@@ -14,6 +14,7 @@ const html = readFileSync(join(root, 'index.html'), 'utf8');
 const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
 const table = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
+const persistence = readFileSync(join(root, 'assets', 'js', 'persistence.js'), 'utf8');
 const charts = readFileSync(join(root, 'assets', 'js', 'charts.js'), 'utf8');
 
 function tagOf(source, id) {
@@ -140,9 +141,9 @@ test('menu de mês tem papel e controle, e o seletor de ano tem um rótulo só',
 test('snapshot persistido usa a cópia enxuta dos registros', () => {
   assert.match(app, /function toPersistedRecord\(record\)/);
   assert.match(app, /if \(key === '_search'\) return;/, 'o índice derivado não pode ser persistido');
-  assert.match(app, /records: state\.dataset\.map\(toPersistedRecord\)/);
+  assert.match(persistence, /records: state\.dataset\.map\(toPersistedRecord\)/);
   // O mesmo recorte vale para o cache local (persistLocal usa buildSnapshot).
-  assert.match(app, /function persistLocal\(\)\s*\{[\s\S]*?var snapshot = buildSnapshot\(\);/);
+  assert.match(persistence, /function persistLocal\(\)\s*\{[\s\S]*?var snapshot = buildSnapshot\(\);/);
 });
 
 // ---------------------------------------------------------------------------
@@ -150,12 +151,12 @@ test('snapshot persistido usa a cópia enxuta dos registros', () => {
 // ---------------------------------------------------------------------------
 
 test('persistência local tem limite de tentativas', () => {
-  const limit = app.match(/var PERSIST_RETRY_LIMIT = (\d+);/);
+  const limit = persistence.match(/var PERSIST_RETRY_LIMIT = (\d+);/);
   assert.ok(limit, 'PERSIST_RETRY_LIMIT não existe (a persistência se reagenda para sempre)');
   assert.ok(Number(limit[1]) > 0 && Number.isFinite(Number(limit[1])), 'o limite precisa ser um número finito');
-  assert.match(app, /if \(persistRetryCount < PERSIST_RETRY_LIMIT\)/);
+  assert.match(persistence, /if \(persistRetryCount < PERSIST_RETRY_LIMIT\)/);
   // Com a validação pendente, o timer para de reagendar ao atingir o limite.
-  const scheduled = bodyOf(app, 'function runScheduledPersist\\(\\)');
+  const scheduled = bodyOf(persistence, 'function runScheduledPersist\\(\\)');
   assert.match(scheduled, /persistRetryCount < PERSIST_RETRY_LIMIT/);
 });
 
