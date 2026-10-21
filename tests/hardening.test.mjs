@@ -15,6 +15,7 @@ const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
 const table = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
 const persistence = readFileSync(join(root, 'assets', 'js', 'persistence.js'), 'utf8');
+const importSource = readFileSync(join(root, 'assets', 'js', 'import.js'), 'utf8');
 const charts = readFileSync(join(root, 'assets', 'js', 'charts.js'), 'utf8');
 
 function tagOf(source, id) {
@@ -254,12 +255,12 @@ test('handler do tablist não quebra quando nenhuma aba está selecionada', () =
 // ---------------------------------------------------------------------------
 
 test('fallback de parsing não repete o parse depois que a promessa já resolveu', () => {
-  const fallback = app.match(/var parseOnMainThread = function \(\) \{([\s\S]*?)\n      \};/);
+  const fallback = importSource.match(/var parseOnMainThread = function \(\) \{([\s\S]*?)\n {8}\};/);
   assert.ok(fallback, 'parseOnMainThread não foi encontrado');
   const guards = fallback[1].match(/if \(settled\) return;/g) || [];
   assert.equal(guards.length, 2, 'a guarda `settled` precisa existir antes e dentro do parse assíncrono');
   // O caminho do Worker que falha também passa pela função com a guarda.
-  assert.match(app, /worker\.onerror = function \(event\) \{[\s\S]*?parseOnMainThread\(\);/);
+  assert.match(importSource, /worker\.onerror = function \(event\) \{[\s\S]*?parseOnMainThread\(\);/);
 });
 
 // ---------------------------------------------------------------------------

@@ -22,14 +22,17 @@ const stateSource = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8')
 const tableSource = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
 const persistenceSource = readFileSync(join(root, 'assets', 'js', 'persistence.js'), 'utf8');
+const importSource = readFileSync(join(root, 'assets', 'js', 'import.js'), 'utf8');
 
 // Usa o DashboardState real (validação de snapshots) em vez de um stub.
 new Function(stateSource)();
-// table.js e banner.js são carregados antes de app.js no index.html; aqui
-// fazemos o mesmo para que o app encontre os módulos ao ser avaliado.
+// table.js, banner.js, persistence.js e import.js são carregados antes de
+// app.js no index.html; aqui fazemos o mesmo para que o app encontre os
+// módulos ao ser avaliado.
 new Function(tableSource)();
 new Function(bannerSource)();
 new Function(persistenceSource)();
+new Function(importSource)();
 
 const SNAPSHOT_KEY = 'snapshot';
 

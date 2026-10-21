@@ -11,6 +11,7 @@ const htmlPath = join(root, 'index.html');
 const html = readFileSync(htmlPath, 'utf8');
 const table = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
+const importSource = readFileSync(join(root, 'assets', 'js', 'import.js'), 'utf8');
 
 function jsFiles(directory) {
   return readdirSync(directory, { withFileTypes: true })
@@ -60,7 +61,7 @@ test('Worker e carregamento sob demanda apontam para bibliotecas locais', () => 
   const worker = readFileSync(join(root, 'assets', 'js', 'worker.js'), 'utf8');
   assert.equal(existsSync(resolve(root, 'assets', 'js', '../../vendor/xlsx.full.min.js')), true);
   assert.match(worker, /importScripts\('\.\.\/\.\.\/vendor\/xlsx\.full\.min\.js', 'etl\.js'\)/);
-  assert.match(readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8'), /vendor\/xlsx\.full\.min\.js/);
+  assert.match(importSource, /vendor\/xlsx\.full\.min\.js/);
   assert.doesNotMatch(html, /<script[^>]+vendor\/xlsx\.full\.min\.js/);
 });
 
@@ -263,7 +264,6 @@ test('seletor de estilo permite alternar entre o visual novo e o antigo', () => 
 });
 test('card de status é transitório com arquivo e persistente no estado vazio', () => {
   const styles = readFileSync(join(root, 'assets', 'css', 'styles.css'), 'utf8');
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
 
   // Começa escondido: o card não pode ficar visível antes de o app decidir.
   assert.match(html, /id="status-banner"[^>]*\shidden[\s>]/);
@@ -283,10 +283,10 @@ test('card de status é transitório com arquivo e persistente no estado vazio',
   assert.match(setBannerText, /els\['banner-text'\]/);
 
   // A importação revela o card em modo transitório.
-  const revealCallSites = [...app.matchAll(/^\s+showTransientUpdateBanner\(\);/gm)];
+  const revealCallSites = [...importSource.matchAll(/^\s+showTransientUpdateBanner\(\);/gm)];
   assert.equal(revealCallSites.length, 1);
-  const upload = app.match(/function handleFileUpload\(event\)\s*\{([\s\S]*?)\r?\n  \}\r?\n/)[1];
-  const applyImport = app.match(/function applyImportedDataset\([^)]*\)\s*\{([\s\S]*?)\r?\n  \}\r?\n/)[1];
+  const upload = importSource.match(/function handleFileUpload\(event\)\s*\{([\s\S]*?)\r?\n    \}\r?\n/)[1];
+  const applyImport = importSource.match(/function applyImportedDataset\([^)]*\)\s*\{([\s\S]*?)\r?\n    \}\r?\n/)[1];
   assert.ok(
     /showTransientUpdateBanner\(\);/.test(upload) || /showTransientUpdateBanner\(\);/.test(applyImport),
     'o fluxo de upload deve revelar o card de status'
