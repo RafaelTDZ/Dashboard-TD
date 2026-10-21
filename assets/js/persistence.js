@@ -12,7 +12,6 @@
     var SupabaseStorage = deps.SupabaseStorage;
     var ETL = deps.ETL;
     var UI = deps.UI;
-    var onRejectedSnapshot = deps.onRejectedSnapshot;
     var onLoadedAtChanged = deps.onLoadedAtChanged;
 
     const DB_NAME = 'bi_hub';
@@ -153,12 +152,10 @@
           persistenceWarningShown = false;
           return;
         }
-        if (result && result.validationError) {
-          // A importação usa persistNow() e trata a recusa antes de chegar aqui;
-          // esta é apenas uma rede de segurança para chamadas remotas antigas.
-          onRejectedSnapshot(result.validationError);
-          return;
-        }
+        // O cache local é sempre gravado aqui (persistLocal é local-only), então
+        // este caminho nunca é uma recusa do banco: a recusa chega pelo
+        // `validationError` devolvido por persistNow(), que é o que o fluxo de
+        // importação consome. O antigo `onRejectedSnapshot` era um ramo morto.
         if (!state.isDemo && !persistenceWarningShown) {
           persistenceWarningShown = true;
           UI.toast('O dataset atual não pôde ser salvo neste navegador.', 'warning', 'Persistência indisponível');

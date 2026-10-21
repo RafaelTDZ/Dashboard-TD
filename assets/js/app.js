@@ -111,7 +111,6 @@
     SupabaseStorage: global.SupabaseStorage,
     ETL: global.ETL,
     UI: global.UI,
-    onRejectedSnapshot: function (error) { handleRejectedSnapshot(error, null); },
     onLoadedAtChanged: function () { updateBanner(); }
   });
 
@@ -154,7 +153,6 @@
   function endSnapshotValidation(context) { persistence.endSnapshotValidation(context); }
 
   function handleFileUpload(event) { return importer.handleFileUpload(event); }
-  function handleRejectedSnapshot(error, previousSnapshot) { return importer.handleRejectedSnapshot(error, previousSnapshot); }
 
   function presentSnapshot(snapshot, options) { return snapshotView.presentSnapshot(snapshot, options); }
   function applyVisualStyle(style, refreshCharts) { view.applyVisualStyle(style, refreshCharts); }

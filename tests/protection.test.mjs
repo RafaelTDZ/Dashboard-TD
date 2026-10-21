@@ -397,16 +397,34 @@ test('F11: a recusa por payload grande mostra "Arquivo grande demais" (toast de 
   );
 });
 
-test('F11: o app liga a recusa do snapshot ao tratamento de recusa da importação', () => {
-  // O caminho percorrido hoje: o fluxo de importação lê o `validationError`
-  // devolvido por persistNow() e chama handleRejectedSnapshot; o callback
-  // onRejectedSnapshot do módulo é a rede de segurança que entrega a mesma
-  // recusa ao mesmo tratamento.
-  const appSource = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+test('F11: a recusa do banco chega à UI pelo canal que existe (validationError)', async () => {
+  // O caminho percorrido: persistNow() devolve { saved:false, validationError } e
+  // o fluxo de importação chama handleRejectedSnapshot com esse erro. O antigo
+  // callback `onRejectedSnapshot` era um ramo morto (só `runScheduledPersist` o
+  // chamava, e esse caminho é local-only) — foi removido.
+  const importSource = readFileSync(join(root, 'assets', 'js', 'import.js'), 'utf8');
   assert.match(
+    importSource,
+    /persistence\.validationError/,
+    'o fluxo de importação precisa ler o validationError devolvido pelo persistNow'
+  );
+  assert.match(
+    importSource,
+    /handleRejectedSnapshot\(persistence\.validationError/,
+    'o fluxo de importação precisa tratar a recusa devolvida pelo banco'
+  );
+
+  const persistenceSource = readFileSync(join(root, 'assets', 'js', 'persistence.js'), 'utf8');
+  assert.doesNotMatch(
+    persistenceSource,
+    /deps\.onRejectedSnapshot|onRejectedSnapshot\(/,
+    'o callback onRejectedSnapshot era um ramo morto e não pode voltar'
+  );
+  const appSource = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+  assert.doesNotMatch(
     appSource,
-    /onRejectedSnapshot:\s*function\s*\(error\)\s*\{\s*handleRejectedSnapshot\(error,\s*null\)/,
-    'a recusa do snapshot precisa chegar ao tratamento de recusa da importação'
+    /onRejectedSnapshot\s*:/,
+    'o app não precisa mais injetar o callback morto'
   );
 });
 

@@ -1244,6 +1244,15 @@ Se o uso real exigir (por exemplo, duas importações legitimately seguidas em
 segundos), o número está em um único lugar — o `interval '30 seconds'` da
 migration — e deve ser alterado junto com a documentação do README.
 
+**Achado EXTRA (ramo morto)**: ao revisar o caminho da recusa, ficou claro que
+o callback `onRejectedSnapshot` nunca era chamado. Quem o invocava era
+`runScheduledPersist`, cujo resultado vem de `persistLocal()` — uma gravação
+**local** que resolve booleano, então o ramo `result.validationError` era
+inalcançável. O canal real da recusa é o `validationError` devolvido por
+`persistNow()`, que o fluxo de importação consome. O callback e o wrapper
+correspondente em `app.js` foram removidos (mesma linha do B5: "código morto
+removido"), e há teste que garante que ele não volta.
+
 ---
 
 ### Auditoria dos 34 itens originais
