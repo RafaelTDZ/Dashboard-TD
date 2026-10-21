@@ -25,10 +25,10 @@
     },
     {
       "name": "Plus Jakarta Sans",
-      "version": "unknown",
+      "version": "v12",
       "entry": "vendor/fonts/plus-jakarta-sans.css",
       "sha256": "6AB1BC57F63FE75CBDFB5ED1B875516336DE7458262865F549F2817850F4F0FD",
-      "origin": "https://fonts.google.com/specimen/Plus+Jakarta+Sans"
+      "origin": "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200..800"
     },
     {
       "name": "Vercel Web Analytics",

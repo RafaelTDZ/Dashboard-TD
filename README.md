@@ -79,6 +79,30 @@ Confirme o `history_id` antes de executar: no procedimento manual, se ele não e
 
 Se o dataset virar sensível ou o risco de tampering deixar de ser aceitável, migrar para a opção B (Supabase Auth + RLS para `authenticated`) ou C (Edge Function com service role e allowlist). Rate limit e monitoramento não estão implementados.
 
+## Limite de escala do snapshot (F6)
+
+O banco guarda o dataset inteiro em **uma** linha JSONB e cada importação reenvia o array. Medido em 21/10/2026 (dataset de referência: 1.944 registros, 2,4 MB):
+
+| Escala | Registros | Payload | Gravação no banco | 4G (10 Mbit/s) |
+|---|---:|---:|---:|---:|
+| 1× | 1.944 | 2,4 MB | 0,17 s | 2,0 s |
+| 2× | 3.894 | 4,9 MB | 0,43 s | 3,9 s |
+| 5× | 9.744 | 12,5 MB | 1,02 s | 9,7 s |
+| 10× | 19.444 | 25,1 MB | 2,22 s | 19,4 s |
+
+O banco aguenta (o `statement_timeout` do papel `anon` é de 3 s); o **transporte** não. Por isso a importação recusa, **antes de qualquer escrita**, um arquivo cujo payload passe de **6 MB** (`DashboardImport.MAX_SNAPSHOT_BYTES`): nada muda na tela, nada é enviado ao Supabase e o usuário recebe o modal "Arquivo grande demais" com a orientação de importar a planilha em partes menores. O limite é ~2,5× o dataset atual (≈ 4.800 registros).
+
+Medições reproduzíveis:
+
+```powershell
+node tools/loadtest.mjs            # lado do cliente, sem rede (1x/2x/5x/10x)
+node tools/loadtest.mjs --json     # mesmo resultado em JSON
+```
+
+`tools/loadtest.sql` mede o lado do banco (custo do INSERT com os triggers) **sempre revertido**: a gravação é feita dentro de um sub-transaction e terminada com `raise exception 'FORCE_ROLLBACK'`, de modo que nem a linha nova, nem o arquivo no histórico, nem o `DELETE` da linha anterior sobrevivem. Rode-o no SQL Editor do Supabase e confira depois que o snapshot de produção continua intacto.
+
+Se o volume passar de 6 MB, a decisão de arquitetura precisa ser reaberta: o caminho natural é a opção **D (híbrido)** — o snapshot como backup/rollback e uma tabela normalizada por `operacao` para consulta, o que tira o dataset inteiro do caminho crítico.
+
 ## Publicação (Vercel)
 
 O site em produção é publicado pela Vercel a partir deste repositório no GitHub: qualquer push para a branch `main` dispara um novo deploy automático (site estático, sem build manual). Depois do deploy, quem estiver com a página aberta precisa recarregar para pegar a versão nova.
@@ -91,7 +115,7 @@ node --test
 
 A mesma suíte roda em Linux e Windows no GitHub Actions (`.github/workflows/test.yml`).
 
-Os testes cobrem regras de status, datas, números e moedas (incluindo células Excel formatadas em CNY), importação XLSX e aba `Comments`, validação e normalização de snapshots e filtros, comparação por `operacao` (superset, processos removidos, atualizações, chaves duplicadas e campo novo do parser), bloqueio de arquivo incompleto, recusa do trigger sem contaminar o cache local, persistência (envio apenas na importação, cache local das interações, restauração "mais recente vence" e respostas do Supabase sem corpo), histórico append-only e rollback, orçamento absoluto de bytes do payload persistido, escape de HTML em cada sink de tela (tabela, banner, selects, toast e modal), fallback do Worker de importação (parse único, adiado e só depois do aviso na tela), sintaxe dos scripts, referências locais e acessibilidade estrutural.
+Os testes cobrem regras de status, datas, números e moedas (incluindo células Excel formatadas em CNY), importação XLSX e aba `Comments`, validação e normalização de snapshots e filtros, comparação por `operacao` (superset, processos removidos, atualizações, chaves duplicadas e campo novo do parser), bloqueio de arquivo incompleto, recusa do trigger sem contaminar o cache local, persistência (envio apenas na importação, cache local das interações, restauração "mais recente vence" e respostas do Supabase sem corpo), histórico append-only e rollback, orçamento absoluto de bytes do payload persistido, escape de HTML em cada sink de tela (tabela, banner, selects, toast e modal), fallback do Worker de importação (parse único, adiado e só depois do aviso na tela), limite de escala da importação (payload acima de 6 MB é recusado antes de qualquer escrita) e reprodução do teste de carga, sintaxe dos scripts, referências locais e acessibilidade estrutural.
 
 Também é possível verificar individualmente os scripts:
 
@@ -117,12 +141,13 @@ Get-ChildItem assets/js -Filter *.js | ForEach-Object { node --check $_.FullName
 - `index.html` — página única com as abas Dashboard Visual, Tabela de Dados e Código de Integração.
 - `assets/js/` — `etl.js` (parsing e mapeamento), `state.js` (snapshots e filtros), `normalize.js`, `filters.js`, `view.js`, `snapshot.js`, `table.js`, `banner.js`, `persistence.js`, `import.js`, `app.js` (composition root), `charts.js`, `ui.js`, `worker.js` (parsing em Web Worker), `supabase.js` (cliente da nuvem) e `analytics.js`.
 - `tools/serve.mjs` — servidor estático local.
+- `tools/loadtest.mjs` / `tools/loadtest.sql` — teste de carga (cliente e banco) do limite de escala.
 - `supabase/migrations/` — SQL das migrations (snapshot único, endurecimento, histórico append-only e rollback), incluindo `20261021120000_excel_imports_history.sql`.
 - `tests/` — suíte `node --test`.
 - `.github/workflows/test.yml` — CI da suíte em Linux e Windows.
 - `.gitignore` — dependências locais, metadados de deploy e ferramentas de agentes.
 - `data/` — planilha de referência do smoke test.
-- `vendor/` — bibliotecas offline (SheetJS/XLSX, Chart.js, Font Awesome e Vercel Analytics).
+- `vendor/` — bibliotecas offline (SheetJS/XLSX, Chart.js, Font Awesome, Plus Jakarta Sans v12 e Vercel Analytics).
 
 ## Dependências offline
 

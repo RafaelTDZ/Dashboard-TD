@@ -155,6 +155,17 @@ test('o manifesto registra as libs vendorizadas com versão real (B11)', () => {
   assert.ok(analytics, 'a analytics do Vercel precisa estar no manifesto');
   assert.match(analytics.version, /^\d+\.\d+\.\d+$/);
 
+  // B16 — nenhuma entrada pode declarar a versão como "unknown": a fonte
+  // vendorizada é a release v12 do Google Fonts (os quatro woff2 conferem
+  // byte a byte com fonts.gstatic.com/s/plusjakartasans/v12/).
+  for (const library of manifest.libraries) {
+    assert.ok(library.version && library.version !== 'unknown',
+      library.name + ' precisa de uma versão real no manifesto');
+  }
+  const font = libraryNamed(/plus-jakarta-sans\.css$/);
+  assert.ok(font, 'a fonte precisa estar no manifesto');
+  assert.equal(font.version, 'v12', 'a fonte vendorizada é a release v12 do Google Fonts');
+
   // E nenhuma entrada pode apontar para fora do diretório vendor/.
   for (const library of manifest.libraries) {
     assert.ok(library.entry.startsWith('vendor/'), library.entry + ' precisa ficar dentro de vendor/');

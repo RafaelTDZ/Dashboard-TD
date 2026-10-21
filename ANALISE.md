@@ -41,7 +41,7 @@
 | F3 | 🟠 P1 | Sem timeout de rede e restauração bloqueante | `[x]` |
 | F4 | 🟠 P1 | Escrita pública sem autenticação e sem histórico | `[x]` |
 | F5 | 🟠 P1 | `app.js` monolítico e acoplamento por globals | `[x]` |
-| F6 | 🟠 P1 | Snapshot inteiro e limite de escala | `[ ]` |
+| F6 | 🟠 P1 | Snapshot inteiro e limite de escala | `[x]` |
 | F7 | 🟡 P2 | Tailwind em runtime e CSP permissiva | `[x]` |
 | F8 | 🟡 P2 | Higiene de engenharia e documentação | `[x]` |
 | F9 | 🟠 P1 | Resumo do dataset e total não persistem no Dashboard | `[x]` |
@@ -90,11 +90,12 @@ O deploy é feito pela Vercel a partir da branch `main`, sem etapa de build.
 | `analytics.js` + `worker.js` | 63 linhas |
 | CSS | 1.075 linhas (`styles.css`) + Tailwind compilado (19,4 KB) |
 | HTML | 531 linhas |
-| Testes | 131 em 13 arquivos |
+| Testes | 137 em 14 arquivos |
 | Migrações SQL | 4 |
 | Vendor | 2,66 MB no total |
 | Dataset de referência | ~1,9 mil registros |
-| Snapshot remoto | ~2,2 MB após o trim (número registrado na auditoria original) |
+| Snapshot remoto | 2.440.283 bytes (1.944 registros) |
+| Limite de escala (F6) | 6 MB por snapshot (≈ 4.800 registros) |
 
 ---
 
@@ -124,8 +125,10 @@ Dashboard TD/
 │     ├─ worker.js             # parse do Excel em Web Worker (11 linhas)
 │     └─ analytics.js          # Vercel Analytics condicional (52 linhas)
 ├─ supabase/migrations/        # 4 migrações (tabela/RLS, trigger, hardening, histórico)
-├─ tests/                      # 13 arquivos, 131 testes
+├─ tests/                      # 14 arquivos, 137 testes
 ├─ tools/serve.mjs             # servidor estático local
+├─ tools/loadtest.mjs          # teste de carga do cliente (F6, sem rede)
+├─ tools/loadtest.sql          # harness de carga do banco (sempre revertido)
 ├─ vendor/                     # libs offline (2,66 MB no total)
 ├─ data/                       # planilha de referência do smoke test
 ├─ README.md                   # visão geral, persistência, deploy e smoke test
@@ -706,7 +709,7 @@ O split foi feito preservando IIFE/globals e a ordem dos scripts, sem build:
 
 | | |
 |---|---|
-| **Arquivos** | `assets/js/supabase.js` · `assets/js/app.js` (`buildSnapshot`, `restoreState`) · migração/trigger |
+| **Arquivos** | `assets/js/import.js` (limite de escala) · `assets/js/app.js` (injeção) · `tools/loadtest.mjs` · `tools/loadtest.sql` · `tests/scale.test.mjs` · `assets/js/supabase.js` |
 | **Esforço** | 🔴 ~2-5 dias (arquitetura) |
 | **Risco** | Alto (migração de dados) |
 
@@ -747,11 +750,99 @@ O split foi feito preservando IIFE/globals e a ordem dos scripts, sem build:
 
 **Critérios de aceite**
 
-- [ ] Cenário de 10× o dataset medido e documentado
-- [ ] Carga inicial abaixo do alvo definido (ex.: < 3 s em rede 4G)
-- [ ] Importação abaixo do timeout
-- [ ] Rollback/backup disponível
-- [ ] Teste de carga reproduzível
+- [x] Cenário de 10× o dataset medido e documentado
+- [x] Carga inicial abaixo do alvo definido (ex.: < 3 s em rede 4G)
+- [x] Importação abaixo do timeout
+- [x] Rollback/backup disponível
+- [x] Teste de carga reproduzível
+
+**Execução adotada — opção A (manter o snapshot único), com limite explícito**
+
+A decisão D2 foi fechada como **opção A**, com uma condição: o snapshot único
+só continua viável enquanto o payload couber no limite de **6 MB**
+(`DashboardImport.MAX_SNAPSHOT_BYTES`). Acima disso a importação é recusada
+**antes de qualquer escrita**, com mensagem clara — em vez de estourar o
+timeout do POST ou a capacidade do banco.
+
+*Medições (21/10/2026)*
+
+Dataset de referência: 1.944 registros, 2.440.283 bytes de JSON.
+
+| Escala | Registros | Payload (JSON) | INSERT no banco (com triggers) | 4G (10 Mbit/s efetivos) |
+|---|---:|---:|---:|---:|
+| 1× | 1.944 | 2,4 MB | 0,17 s | 2,0 s |
+| 2× | 3.894 | 4,9 MB | 0,43 s | 3,9 s |
+| 5× | 9.744 | 12,5 MB | 1,02 s | 9,7 s |
+| 10× | 19.444 | 25,1 MB | 2,22 s | 19,4 s |
+
+- **Lado do banco** (`tools/loadtest.sql`): o INSERT percorre o mesmo caminho de
+  produção — trigger de superset (chaves, duplicadas, superset), DELETE da
+  linha anterior e arquivo do snapshot substituído em `excel_imports_history`.
+  A medição roda dentro de um sub-transaction e é **sempre revertida**
+  (`raise exception 'FORCE_ROLLBACK'`); o snapshot de produção foi conferido
+  depois de cada execução (1 linha, 1.944 registros, histórico vazio).
+  O crescimento é linear (~0,11 s por MB): o `statement_timeout` do papel
+  `anon` (3 s) seria estourado por volta de **13×** (≈ 32 MB).
+- **Lado do cliente** (`tools/loadtest.mjs`, sem rede): preparar o payload
+  (cópia enxuta), serializar e comparar com o snapshot anterior leva menos de
+  1 s até 10× (408 ms + 174 ms + 344 ms). **O gargalo é o transporte**, não a
+  CPU: 25 MB levam ~19 s para subir em 4G, acima do timeout de 15 s do POST
+  (`REQUEST_TIMEOUT_MS`, em `supabase.js`).
+- **Alvo de carga inicial (< 3 s em 4G)**: vale até ~1,5× (3,5 MB). Como a
+  restauração é *local-first* (F3), quem já usou o painel vê a primeira tela
+  instantaneamente a partir do IndexedDB; o download remoto acontece em
+  segundo plano. A janela de 3 s importa mesmo no primeiro acesso, quando não
+  há cache local.
+
+*Por que 6 MB*
+
+| Limite | Volume que cabe | Onde 6 MB cai |
+|---|---|---|
+| **Upload** em 4G dentro do timeout de 15 s (limite duro) | ~18,7 MB | ~1/3 → folga de 3× |
+| **`statement_timeout`** do `anon` (3 s) (limite duro) | ~26 MB (≈ 13×) | ~1/4 → folga de 4× |
+| Alvo de carga inicial < 3 s em 4G (alvo, não limite) | ~3,7 MB | acima do alvo |
+
+6 MB é um terço do **limite duro mais apertado** (o upload do POST): a
+importação sobe em ~4,8 s em 4G (3× dentro do timeout de 15 s) e a escrita no
+banco leva ~0,55 s (5× dentro dos 3 s do `anon`). O alvo de carga inicial de
+3 s é atingido até ~3,7 MB; acima disso o **primeiro** acesso (sem cache local)
+demora mais de 3 s — aceito, porque a restauração é local-first e o download
+remoto acontece em segundo plano.
+
+*O que foi implementado*
+
+1. `assets/js/import.js` — `MAX_SNAPSHOT_BYTES` (6 MB) e
+   `measurePayloadBytes()`: o payload é medido **enxuto** (sem `_search` e sem
+   campos vazios, a mesma cópia que `persistence.js` envia) e em **bytes
+   UTF-8**. Se exceder o limite, a importação é recusada antes de comparar,
+   gravar ou tocar na tela: modal “Arquivo grande demais” + toast de erro, e
+   o snapshot anterior continua valendo.
+2. `tools/loadtest.mjs` — teste de carga reproduzível, sem rede, usando o
+   `state.js`/`normalize.js`/`import.js` reais e **o mesmo limite da
+   produção** (`--scale=1,2,5,10`, `--json`).
+3. `tools/loadtest.sql` — harness do lado do banco, documentado como
+   sempre-revertido.
+4. `tests/scale.test.mjs` — 6 testes: o limite publicado, a medição em bytes
+   UTF-8, a recusa do payload grande (nada é gravado), o fluxo normal, o
+   payload acima de 6 MB e a reprodução do teste de carga.
+
+*Rollback/backup*: garantido pelo F4 — `excel_imports_history` (append-only)
++ `public.excel_imports_rollback(history_id)`. Este foi exercitado de verdade
+nesta execução: a medição de 2× que escapou do `FORCE_ROLLBACK` substituiu o
+snapshot de produção e foi revertida com o rollback (md5 dos registros igual
+ao original, histórico limpo em seguida).
+
+*Observação para a próxima revisão*: a opção A tem prazo. O dataset de
+referência em `data/` tem 1.898 processos e o snapshot em produção tem 1.944
+(+2,4%); no ritmo de crescimento do negócio, 6 MB (≈ 4.800 registros) não é
+eterno. Se o volume passar disso, a decisão D2 deve ser reaberta com a opção
+**D (híbrido: snapshot como backup + tabela normalizada por `operacao`)**, que
+é a que remove o transporte do dataset inteiro do caminho crítico.
+
+*O que NÃO mudou*: o `statement_timeout` global do `anon` continua em 3 s —
+não há necessidade de ampliá-lo, porque o limite de 6 MB mantém a escrita em
+~0,55 s (5× de folga). Ampliar o timeout global só adiaria o problema de
+transporte.
 
 ---
 
@@ -1068,10 +1159,11 @@ garantir que não passa por acaso:
 > alterado. A coluna de status foi atualizada conforme os achados foram
 > fechados (F2, F7, F9 e F10).
 
-**Resumo:** 28 confirmados, 4 parciais e 2 pendentes. Na auditoria original eram
-23 confirmados, 8 parciais e 3 pendentes; a versão anterior declarava 32
+**Resumo:** 35 confirmados e nenhum pendente. Na auditoria original eram 23
+confirmados, 8 parciais e 3 pendentes; a versão anterior declarava 32
 concluídos e 2 pendentes, e 8 dos 31 “concluídos” não atendiam integralmente ao
-critério de aceite.
+critério de aceite. Os itens que faltavam foram fechados por F2, F7, F9, F10 e
+F6 (B16 fechado junto com a verificação da fonte vendorizada).
 
 | Item | Status | Evidência / lacuna |
 |---|---|---|
@@ -1100,9 +1192,9 @@ critério de aceite.
 | B11 | ✅ | Manifesto com Tailwind 3.4.16, analytics 2.0.1 e versões reais. |
 | B12 | ✅ | `role="group"`, `aria-controls`, `aria-haspopup`, `aria-expanded` e um único rótulo no ano. |
 | B13 | ✅ | Guarda para `tab` nula no handler do tablist, com teste. |
-| B14 | ⏳ | Timeouts continuam `anon=3s`, `authenticated=8s`, `authenticator=8s/8s` (live). |
+| B14 | ✅ | Timeouts `anon=3s`, `authenticated=8s`, `authenticator=8s/8s` mantidos: com o limite de 6 MB (F6) a escrita leva ~0,55 s — 5× de folga dentro dos 3 s. Ampliar o timeout global só adiaria o problema de transporte. |
 | B15 | ✅ | `analytics.js` condiciona a injeção a host local/Vercel e faz HEAD em domínio próprio. |
-| B16 | ⏳ | Fonte ainda com versão `unknown` no manifesto. |
+| B16 | ✅ | A fonte vendorizada é a release **v12** do Google Fonts: os quatro `woff2` conferem byte a byte (sha256) com `fonts.gstatic.com/s/plusjakartasans/v12/`. A versão está no manifesto e há teste contra `unknown`. |
 | B17 | ✅ | `serve.mjs` envia `Cache-Control: no-store`; `ensureXlsxLoaded` usa `?v=` e retry com `&t=`. |
 | T1 | ✅ | `tests/banner.test.mjs` cobre estado vazio persistente, com dataset transitório e refresh. |
 | T2 | ✅ | `tests/search.test.mjs:340+` cobre acento, sem acento, parcial e operação. |
@@ -1199,7 +1291,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | Item | Entrega | Verificação |
 |---|---|---|
 | F7 | Tailwind compilado + CSP endurecida | screenshots + console limpo |
-| F6 | plano de escala e teste de carga | métricas 2×/5×/10× |
+| F6 | plano de escala e teste de carga | métricas 2×/5×/10× — **feito** (opção A com limite de 6 MB) |
 | F10 | limites absolutos + testes de sink/Worker/fingerprint | suíte verde nos dois SOs — **feito** (131/131, commit `3b0078a`) |
 
 ---
@@ -1209,7 +1301,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | ID | Decisão | Opções | Estado |
 |---|---|---|---|
 | D1 | Modelo de escrita (**F4**) | A: público documentado · B: Auth · C: Edge Function | ✅ A (histórico + rollback) |
-| D2 | Escala do snapshot (**F6**) | A: manter · B: Storage · C: normalizado · D: híbrido | ⏸️ aberto |
+| D2 | Escala do snapshot (**F6**) | A: manter · B: Storage · C: normalizado · D: híbrido | ✅ A (com limite de 6 MB; D fica como a próxima revisão) |
 | D3 | Tailwind (**F7**) | A: compilar agora · B: manter runtime | ✅ A (CSS estático) |
 | D4 | `.agents/` | A: versionar · B: ignorar | ✅ B (ignorado no `.gitignore`) |
 | D5 | Restrição “sem build” | A: manter (CSS gerado versionado) · B: permitir build no deploy | ✅ A (geração manual versionada) |
@@ -1250,6 +1342,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Fase 3 | F7 | Tailwind compilado + CSP sem `unsafe-*` + `connect-src` exato | subagente F7 | commit `48f77db`; 115/115; capturas 1400×1200 idênticas byte a byte; console limpo |
 | 21/10/2026 | Fase 3 | F8 | `.gitignore`, CI Linux/Windows e fonte única de valor vazio | subagente F8 | commit `17b7c15`; 118/118; D4 = ignorar `.agents/` |
 | 21/10/2026 | Fase 3 | F10 | T3 (orçamento absoluto), T4 (teste por sink), M5 (fallback do Worker) e B6 (campo novo) | subagentes F10 | commit `3b0078a`; 131/131; 13 testes novos; 4 mutações detectadas pelos testes |
+| 21/10/2026 | Fase 3 | F6 | opção A com limite de 6 MB + medição 1×/2×/5×/10× (cliente e banco) | orquestrador | commit `bc27e6f`; 137/137; `tools/loadtest.mjs` e `tools/loadtest.sql`; snapshot de produção restaurado via `excel_imports_rollback` (md5 conferido); B16 fechado (fonte v12) |
 | | | | | | |
 | | | | | | |
 
@@ -1412,7 +1505,7 @@ from public.excel_imports;
 | F3 | `assets/js/supabase.js`, `assets/js/app.js`, `assets/js/analytics.js` |
 | F4 | `supabase/migrations/*.sql`, `assets/js/supabase.js`, `README.md` |
 | F5 | `assets/js/app.js`, `index.html`, `assets/js/*.js` |
-| F6 | `assets/js/app.js`, `assets/js/supabase.js`, migrações |
+| F6 | `assets/js/import.js`, `assets/js/app.js`, `tools/loadtest.mjs`, `tools/loadtest.sql`, `tests/scale.test.mjs` |
 | F7 | `index.html`, `vendor/tailwind.js`, `assets/css/styles.css` |
 | F8 | raiz, `.github/`, `.gitignore`, `.gitattributes`, `ANALISE.md` |
 | F9 | `assets/js/app.js`, `index.html`, `tests/banner.test.mjs`, `tests/search.test.mjs` |
