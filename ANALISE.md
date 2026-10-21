@@ -37,7 +37,7 @@
 | ID | Prioridade | Achado | Status |
 |---|---|---|---|
 | F1 | 🔴 P0 | Suíte não é portável entre sistemas (CRLF) | `[x]` |
-| F2 | 🔴 P0 | “Mais recente vence” ainda usa timestamp do cliente | `[ ]` |
+| F2 | 🔴 P0 | “Mais recente vence” ainda usa timestamp do cliente | `[x]` |
 | F3 | 🟠 P1 | Sem timeout de rede e restauração bloqueante | `[ ]` |
 | F4 | 🟠 P1 | Escrita pública sem autenticação e sem histórico | `[ ]` |
 | F5 | 🟠 P1 | `app.js` monolítico e acoplamento por globals | `[ ]` |
@@ -452,13 +452,19 @@ meta: Object.assign({}, row.metadata || {}, {
 
 **Critérios de aceite**
 
-- [ ] `metadata.loadedAt` no futuro é ignorado na escolha nuvem/cache
-- [ ] A escolha usa `created_at` retornado pelo Supabase
-- [ ] “Última leitura” reflete o horário do servidor
-- [ ] Cache local pós-save também usa o timestamp do servidor
-- [ ] Teste de persistência usa `created_at`, não `metadata.loadedAt`
-- [ ] Importação e restauração continuam funcionando
-- [ ] Teste automatizado cobre o cenário
+- [x] `metadata.loadedAt` no futuro é ignorado na escolha nuvem/cache
+- [x] A escolha usa `created_at` retornado pelo Supabase
+- [x] “Última leitura” reflete o horário do servidor
+- [x] Cache local pós-save também usa o timestamp do servidor
+- [x] Teste de persistência usa `created_at`, não `metadata.loadedAt`
+- [x] Importação e restauração continuam funcionando
+- [x] Teste automatizado cobre o cenário
+
+> Executado em 21/10/2026: `saveSnapshot` passou a usar
+> `Prefer: return=representation`; o retorno é normalizado por `rowToSnapshot`
+> (`loadedAt = created_at`, `clientLoadedAt` para diagnóstico). O `persistState`
+> atualiza estado e IndexedDB antes de gravar e repinta “Última leitura”. Suíte:
+> 107/107 (3 testes novos).
 
 ---
 
@@ -1079,6 +1085,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Auditoria | 34 itens originais | 23 confirmados, 8 parciais e 3 pendentes | — | Supabase read-only; nenhum dado alterado |
 | 21/10/2026 | Fase 0 | preparação | branch `chore/estrutura-correcoes`; baseline 101/104 | — | árvore limpa exceto `.agents/`; inspeção visual ainda pendente |
 | 21/10/2026 | Fase 1 | F1 | `.gitattributes`, normalização LF e teste SQL EOL-safe | subagente F1 | commit `0c05e2f`; 104/104 no Windows; manifesto do analytics corrigido |
+| 21/10/2026 | Fase 1 | F2 | `created_at` server-authoritative no save e na restauração | subagente F2 | commit `9735256`; 107/107; 3 testes novos |
 | | | | | | |
 | | | | | | |
 
