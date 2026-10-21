@@ -4,7 +4,8 @@ Dashboard estático para visualização e importação de dados de processos de 
 
 - **Produção**: https://tdz-db.vercel.app (deploy automático pela Vercel a partir deste repositório)
 - **Local**: `node tools/serve.mjs 8765` → `http://127.0.0.1:8765/`
-- **Testes**: `node --test`
+- **Testes**: `node --test` (137 testes; também no CI, em Linux e Windows)
+- **Documento de análise**: [`ANALISE.md`](ANALISE.md) — o que foi corrigido, as medições e as decisões de arquitetura
 
 ## Executar localmente
 
@@ -16,9 +17,17 @@ node tools/serve.mjs 8765
 
 Abra `http://127.0.0.1:8765/` no Chrome ou Edge. Sem conexão com a internet, o dashboard continua funcionando com os dados do cache local.
 
+## O que fica visível na tela
+
+- **Cabeçalho (sempre visível)**: `#dataset-summary` mostra `arquivo · X de Y processos` — por exemplo `!Importações (61).xlsx · 861 de 1.944 processos`. É a informação que sobrevive ao card de status e ao recarregamento da página.
+- **Card de status (transitório)**: ao carregar um arquivo, o card `#status-banner` mostra o nome, a guia, o total de processos e os avisos da importação, e some sozinho depois de 8 s (300 ms de fade). Sem nenhum arquivo carregado, ele fica visível com a instrução de como importar. Um erro fatal de inicialização trava o card, para que um `refresh()` posterior não apague a mensagem.
+- **KPI de processos**: o número grande é o total **filtrado**; a legenda embaixo mostra o total do dataset e o filtro ativo (`861 de 1.944 · filtro 2026`).
+- **Tabela de dados**: a contagem é `Exibindo 1–50 de 861 filtrados (1.944 no total)` — nunca “X de Y de Z”, que era ambíguo.
+- **Estado vazio**: sem dataset, os seis KPIs ficam zerados, o filtro global de ano volta para "Todos os anos" e o card de status continua visível.
+
 ## CSS (Tailwind)
 
-O Tailwind não roda no navegador. O CSS é compilado previamente e versionado em `assets/css/tailwind.css`, carregado antes de `assets/css/styles.css`. A configuração fica em `tailwind.config.cjs` e varre `index.html` **e** `assets/js/**/*.js` (as classes de badge/status só existem em strings do JavaScript).
+O Tailwind não roda no navegador. O CSS é compilado previamente e versionado em `assets/css/tailwind.css` (19,4 KB minificado), carregado antes de `assets/css/styles.css`. A configuração fica em `tailwind.config.cjs` e varre `index.html` **e** `assets/js/**/*.js` (as classes de badge/status só existem em strings do JavaScript).
 
 Para regenerar depois de adicionar classes:
 
@@ -28,12 +37,32 @@ npm run build:css
 
 O script usa `npx --yes tailwindcss@3.4.16` (versão fixa) e `--minify`; não é necessário `npm install`. O CSS gerado deve ser commitado junto com a mudança que o exigiu. Como não há script inline nem `eval`, a CSP do `index.html` usa apenas `script-src 'self'` e `connect-src` restrito ao host do projeto Supabase.
 
+O Play CDN (`vendor/tailwind.js`, 440 KB, que compilava o Tailwind em runtime) foi removido: ele avisava no console que não deve ser usado em produção e obrigava a CSP a permitir `'unsafe-inline'` e `'unsafe-eval'`. Hoje a CSP é `default-src 'self'`, `script-src 'self'`, `style-src 'self'`, `font-src 'self' data:`, `img-src 'self' data:`, `connect-src 'self' https://bsczvemaqvladupmdpgl.supabase.co`, `worker-src 'self' blob:`, `object-src 'none'`, `base-uri 'self'` e `form-action 'self'`.
+
+> As classes que o `styles.css` sobrescreve continuam usando seletores `[class~="..."]`. As classes correspondentes estão no CSS compilado, mas **nova classe dinâmica exige regenerar** o `tailwind.css`.
+
+## Arquitetura do código
+
+SPA estática, sem build e sem empacotador: cada módulo é uma IIFE que publica um global, e o `index.html` carrega os scripts nessa ordem:
+
+```text
+etl.js → ui.js → charts.js → state.js → supabase.js → normalize.js →
+filters.js → view.js → snapshot.js → table.js → banner.js →
+persistence.js → import.js → app.js
+```
+
+- `app.js` é o **composition root** (369 linhas): monta o estado, resolve os elementos do DOM, liga os eventos e injeta as dependências nos módulos. A ordem dos scripts é um contrato — cada módulo assume que os globals anteriores já existem.
+- Módulos extraídos do antigo `app.js` monolítico: `normalize.js` (índice de busca, cópia enxuta, referência mensal), `filters.js` (filtros, busca e ordenação), `view.js` (estilo, abas e KPIs), `snapshot.js` (apresentação do snapshot restaurado), `table.js` (tabela, paginação e CSV), `banner.js` (card de status e KPIs), `persistence.js` (Supabase + IndexedDB) e `import.js` (upload, parse, comparação e relatório).
+- **Regra de valor vazio com uma única fonte**: `DashboardState.isEmptyValue` define o que é "vazio" (`null`, `''`, `undefined` e arrays vazios). A mesma função decide o que é gravado no banco (`normalize.toPersistedRecord`) e o que conta como mudança na comparação de snapshots (`state.recordFingerprint`) — assim as duas não podem divergir.
+- A importação roda o parse do Excel em um **Web Worker** (`worker.js`), com fallback para a thread principal; o fallback só roda depois que a interface teve a chance de pintar o aviso e apenas uma vez.
+
 ## Persistência dos dados
 
 - **Importação**: ao carregar um `.xlsx`, o dashboard compara a lista de `operacao` do arquivo novo com o snapshot mais recente do Supabase. O arquivo só substitui o anterior quando contém **todos** os processos já salvos (pode acrescentar novos e atualizar dados dos existentes). Se algum processo antigo desaparecer, a importação é bloqueada e o banco não é alterado.
+- **O que é gravado**: o que vai para o banco é a **cópia enxuta** dos registros — sem o índice de busca derivado (`_search`) e sem campos vazios (`null`, `''` e arrays vazios). Os dados em memória continuam completos, porque o `_search` é recalculado ao restaurar. É essa cópia que ocupa espaço (e que o limite de 6 MB mede).
 - **Uma única versão**: a tabela `excel_imports` mantém exatamente um snapshot — o último arquivo aceito. O trigger `excel_imports_single_latest` valida a comparação e apaga as versões anteriores na mesma transação, e o índice único `excel_imports_singleton` garante a mesma invariante mesmo se o trigger for desabilitado. O `DELETE` do trigger leva `WHERE` de propósito: o projeto carrega a biblioteca `safeupdate`, que recusa qualquer `DELETE` sem cláusula `WHERE` — sem ela a importação pela nuvem é rejeitada. As migrations do Supabase estão espelhadas em `supabase/migrations/`: `20261009142126_create_excel_imports.sql` (tabela, RLS e grants), `20261019141213_excel_imports_single_latest.sql` (trigger e limpeza inicial), `20261020120000_harden_excel_imports.sql` (privilégios do papel `anon`, timestamps do servidor, invariante de linha única e `search_path` restrito) e `20261021120000_excel_imports_history.sql` (histórico append-only e rollback).
 - **Interações** (filtros, busca, ordenação, estilo Claro/Escuro e alternância USD/QTD): alteram apenas o cache local — não geram novos envios à nuvem.
-- **Restauração**: ao abrir ou recarregar a página, vence o snapshot mais recente entre a nuvem e o cache local; a ordenação usa o `created_at` do servidor, exposto como `meta.loadedAt` (o horário enviado pelo cliente fica apenas como diagnóstico). Os filtros salvos voltam como estavam.
+- **Restauração local-first**: ao abrir ou recarregar a página, o snapshot do **IndexedDB** é pintado primeiro (a tela aparece sem esperar a rede) e o Supabase reconcilia em segundo plano; vence o mais recente entre os dois, com a ordenação pelo `created_at` do servidor, exposto como `meta.loadedAt` (o horário enviado pelo cliente fica apenas como diagnóstico). Os filtros salvos voltam como estavam. As chamadas ao Supabase têm timeout de 15 s (`AbortController`): uma rede instável não deixa a tela presa esperando.
 - **Recusa do banco**: se o trigger recusar o arquivo (por exemplo, por uma importação concorrente), o snapshot novo não é gravado no IndexedDB e o snapshot anterior volta a ser exibido.
 - **Parser antigo**: snapshots gerados por uma versão anterior do parser são preservados, e o dashboard recomenda uma nova importação.
 
@@ -107,6 +136,21 @@ Se o volume passar de 6 MB, a decisão de arquitetura precisa ser reaberta: o ca
 
 O site em produção é publicado pela Vercel a partir deste repositório no GitHub: qualquer push para a branch `main` dispara um novo deploy automático (site estático, sem build manual). Depois do deploy, quem estiver com a página aberta precisa recarregar para pegar a versão nova.
 
+## Higiene do repositório
+
+- **Fim de linha**: o `.gitattributes` normaliza tudo para **LF** no repositório. Sem isso, a suíte falhava no Windows (os testes de SQL comparavam arquivos com CRLF) — o checkout local pode exibir CRLF, mas o que está versionado é LF.
+- **`.gitignore`** cobre `node_modules/`, `.vercel/`, `.agents/`, `*.log` e o resto dos artefatos locais. O `.agents/` (skill do Supabase via MCP) fica **fora** do versionamento por decisão registrada.
+- **CI**: `.github/workflows/test.yml` roda `node --test` em **Linux e Windows** a cada push e pull request. Não há ESLint, Prettier nem type check no projeto.
+- **Sem build no deploy**: o único artefato gerado é `assets/css/tailwind.css`, versionado no repositório e regenerado sob demanda com `npm run build:css`.
+- **Documento único**: o `ANALISE.md` reúne a análise estrutural, a auditoria dos 34 itens originais, as decisões (D1–D5) e o registro de execução. O README é o documento operacional; o `ANALISE.md` é o histórico com as medições e as justificativas.
+
+## Acessibilidade
+
+- O card de status é uma região ao vivo (`aria-live="polite"`), mas o texto não é reescrito a cada tecla digitada — a reader de tela não repete a leitura.
+- O menu de meses tem `role="group"`, `aria-haspopup`, `aria-controls` e `aria-expanded`; o seletor de ano tem **um** rótulo só (evita leitura duplicada).
+- A navegação por abas funciona pelo teclado (setas, `Home`, `End`), com guarda para o caso de nenhuma aba estar selecionada.
+- O modal prende o `Tab` dentro dele, foca o botão de fechar ao abrir e **devolve o foco** ao elemento de origem ao fechar.
+
 ## Verificar
 
 ```powershell
@@ -132,22 +176,27 @@ Get-ChildItem assets/js -Filter *.js | ForEach-Object { node --check $_.FullName
 5. Importe `data/Importaes-63cc10.xlsx` e confirme: 1.898 processos, 0 linhas ignoradas e 3 comentários da aba `Comments`. O filtro global de ano volta no ano corrente (2026), e a evolução mensal — regra ETA > ETS — soma só esse ano (Outubro = 67); escolha "Todos os anos" para ver a série completa (Outubro = 186, com 119 de 2025 + 67 de 2026). Os 11 registros sem ETA/ETS ficam fora da série. Em `Valor / Moeda`, os 25 registros em CNY permanecem identificados e fora dos totais em USD; o CSV exportado separa `Valor informado`, `Moeda` e `Valor USD`.
 6. Importe uma planilha que não contenha um dos processos já carregados e confirme: o modal "Importação bloqueada" lista o processo ausente, nada é enviado ao Supabase e o dashboard continua com o snapshot anterior.
 7. Recarregue a página e confirme a restauração do último dataset (o mais recente entre nuvem e cache local) e que a tabela `excel_imports` tem apenas uma linha.
-8. Mude filtros e estilo, recarregue de novo e confirme que voltam como estavam (persistência local; a nuvem só recebe snapshots em importações).
-9. Abra e feche o relatório pelo teclado; o foco deve retornar ao botão de origem.
-10. Verifique o console do navegador para erros após cada fluxo (fora da Vercel, o 404 de `/_vercel/insights/script.js` é esperado).
+8. Espere o card de status sumir (8 s) e confirme que o **cabeçalho** continua mostrando `arquivo · X de Y processos` e que a legenda do KPI mostra `X de Y · filtro 2026`.
+9. Mude filtros e estilo, recarregue de novo e confirme que voltam como estavam (persistência local; a nuvem só recebe snapshots em importações).
+10. Abra e feche o relatório pelo teclado; o foco deve retornar ao botão de origem.
+11. Tente importar um arquivo que gere mais de 6 MB de payload e confirme o modal "Arquivo grande demais": nada muda na tela e nada é enviado ao Supabase.
+12. Verifique o console do navegador para erros após cada fluxo (fora da Vercel, o 404 de `/_vercel/insights/script.js` é esperado).
 
 ## Estrutura
 
-- `index.html` — página única com as abas Dashboard Visual, Tabela de Dados e Código de Integração.
+- `index.html` — página única com as abas Dashboard Visual, Tabela de Dados e Código de Integração (CSP e ordem de carga dos scripts).
 - `assets/js/` — `etl.js` (parsing e mapeamento), `state.js` (snapshots e filtros), `normalize.js`, `filters.js`, `view.js`, `snapshot.js`, `table.js`, `banner.js`, `persistence.js`, `import.js`, `app.js` (composition root), `charts.js`, `ui.js`, `worker.js` (parsing em Web Worker), `supabase.js` (cliente da nuvem) e `analytics.js`.
+- `assets/css/` — `styles.css` (tema e componentes) e `tailwind.css` (Tailwind compilado, versionado).
 - `tools/serve.mjs` — servidor estático local.
 - `tools/loadtest.mjs` / `tools/loadtest.sql` — teste de carga (cliente e banco) do limite de escala.
 - `supabase/migrations/` — SQL das migrations (snapshot único, endurecimento, histórico append-only e rollback), incluindo `20261021120000_excel_imports_history.sql`.
-- `tests/` — suíte `node --test`.
+- `tests/` — suíte `node --test` (14 arquivos, 137 testes).
 - `.github/workflows/test.yml` — CI da suíte em Linux e Windows.
+- `.gitattributes` — normalização de fim de linha (LF) e regras de diff.
 - `.gitignore` — dependências locais, metadados de deploy e ferramentas de agentes.
 - `data/` — planilha de referência do smoke test.
 - `vendor/` — bibliotecas offline (SheetJS/XLSX, Chart.js, Font Awesome, Plus Jakarta Sans v12 e Vercel Analytics).
+- `ANALISE.md` — análise estrutural, auditoria dos 34 itens originais, decisões e registro de execução.
 
 ## Dependências offline
 
