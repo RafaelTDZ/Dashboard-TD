@@ -40,7 +40,7 @@
 | F2 | 🔴 P0 | “Mais recente vence” ainda usa timestamp do cliente | `[x]` |
 | F3 | 🟠 P1 | Sem timeout de rede e restauração bloqueante | `[x]` |
 | F4 | 🟠 P1 | Escrita pública sem autenticação e sem histórico | `[ ]` |
-| F5 | 🟠 P1 | `app.js` monolítico e acoplamento por globals | `[~]` |
+| F5 | 🟠 P1 | `app.js` monolítico e acoplamento por globals | `[x]` |
 | F6 | 🟠 P1 | Snapshot inteiro e limite de escala | `[ ]` |
 | F7 | 🟡 P2 | Tailwind em runtime e CSP permissiva | `[ ]` |
 | F8 | 🟡 P2 | Higiene de engenharia e documentação | `[ ]` |
@@ -588,7 +588,7 @@ create table if not exists public.excel_imports_history (
 
 | | |
 |---|---|
-| **Arquivos** | `assets/js/app.js` (1.232 linhas, ~64 funções) · `index.html:40-48` |
+| **Arquivos** | `assets/js/app.js` (368 linhas, composition root) · `assets/js/{normalize,filters,view,snapshot,table,banner,persistence,import}.js` · `index.html:40-52` |
 | **Esforço** | 🟡 ~1-2 dias (incremental) |
 | **Risco** | Médio (refatoração sem mudança de comportamento) |
 
@@ -645,16 +645,19 @@ O split foi feito preservando IIFE/globals e a ordem dos scripts, sem build:
 1. `table.js` — tabela, paginação, ordenação e exportação CSV (passo 1).
 2. `banner.js` — banners, KPIs e resumo do dataset (passo 2).
 3. `persistence.js` — Supabase + IndexedDB, snapshot e restauração (passo 3).
-4. `import.js` — upload, parse, comparação e relatório de importação (próximo).
-5. `app.js` — composição, eventos, filtros e regras de apresentação.
+4. `import.js` — upload, parse, comparação e relatório de importação (passo 4).
+5. `normalize.js` / `filters.js` / `view.js` / `snapshot.js` — normalização de
+   registros, filtros/ordenação, estilo/abas e render de snapshot (passo 5).
+6. `app.js` — composição, eventos e `refresh` (composition root).
 
 **Critérios de aceite**
 
-- [ ] `app.js` abaixo de ~400 linhas
-- [ ] Nenhum comportamento alterado (smoke test manual)
-- [ ] 104/104 testes verdes
-- [ ] Contratos de snapshot e canonicalização preservados
-- [ ] Worker continua funcionando
+- [x] `app.js` abaixo de ~400 linhas (368)
+- [x] Nenhum comportamento alterado (smoke test manual: 861 de 1.944, filtros,
+      busca, estilo, abas e restauração)
+- [x] 113/113 testes verdes
+- [x] Contratos de snapshot e canonicalização preservados
+- [x] Worker continua funcionando
 
 ---
 
@@ -1114,6 +1117,8 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Fase 3 | F5 passo 1 | tabela, paginação, ordenação e CSV em `table.js` | subagente F5 | commit `9b42b47`; 113/113; `app.js` 1.817→1.667 |
 | 21/10/2026 | Fase 3 | F5 passo 2 | banners, KPIs e resumo em `banner.js` | subagente F5 | commit `812f729`; 113/113; `app.js` 1.667→1.524 |
 | 21/10/2026 | Fase 3 | F5 passo 3 | persistência Supabase/IndexedDB em `persistence.js` | subagente F5 | commit `32cde6c`; 113/113; `app.js` 1.524→1.232 |
+| 21/10/2026 | Fase 3 | F5 passo 4 | upload, parse, comparação e relatório em `import.js` | subagente F5 | commit `b084e52`; 113/113; `app.js` 1.232→898 |
+| 21/10/2026 | Fase 3 | F5 passo 5 | normalização, filtros, view e snapshot em módulos | subagente F5 | commit `abe373a`; 113/113; `app.js` 898→368; smoke no navegador local |
 | | | | | | |
 | | | | | | |
 
