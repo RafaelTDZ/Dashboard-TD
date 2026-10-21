@@ -91,7 +91,7 @@ node --test
 
 A mesma suíte roda em Linux e Windows no GitHub Actions (`.github/workflows/test.yml`).
 
-Os testes cobrem regras de status, datas, números e moedas (incluindo células Excel formatadas em CNY), importação XLSX e aba `Comments`, validação e normalização de snapshots e filtros, comparação por `operacao` (superset, processos removidos, atualizações e chaves duplicadas), bloqueio de arquivo incompleto, recusa do trigger sem contaminar o cache local, persistência (envio apenas na importação, cache local das interações, restauração "mais recente vence" e respostas do Supabase sem corpo), histórico append-only e rollback, sintaxe dos scripts, referências locais e acessibilidade estrutural.
+Os testes cobrem regras de status, datas, números e moedas (incluindo células Excel formatadas em CNY), importação XLSX e aba `Comments`, validação e normalização de snapshots e filtros, comparação por `operacao` (superset, processos removidos, atualizações, chaves duplicadas e campo novo do parser), bloqueio de arquivo incompleto, recusa do trigger sem contaminar o cache local, persistência (envio apenas na importação, cache local das interações, restauração "mais recente vence" e respostas do Supabase sem corpo), histórico append-only e rollback, orçamento absoluto de bytes do payload persistido, escape de HTML em cada sink de tela (tabela, banner, selects, toast e modal), fallback do Worker de importação (parse único, adiado e só depois do aviso na tela), sintaxe dos scripts, referências locais e acessibilidade estrutural.
 
 Também é possível verificar individualmente os scripts:
 

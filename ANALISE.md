@@ -45,7 +45,7 @@
 | F7 | 🟡 P2 | Tailwind em runtime e CSP permissiva | `[x]` |
 | F8 | 🟡 P2 | Higiene de engenharia e documentação | `[x]` |
 | F9 | 🟠 P1 | Resumo do dataset e total não persistem no Dashboard | `[x]` |
-| F10 | 🟡 P2 | Cobertura de testes não comprova T3/T4/M5/B6 | `[ ]` |
+| F10 | 🟡 P2 | Cobertura de testes não comprova T3/T4/M5/B6 | `[x]` |
 
 > F9 e F10 vieram da auditoria dos 34 itens originais (21/10/2026); F1–F8 são da análise estrutural.
 
@@ -72,18 +72,26 @@ O deploy é feito pela Vercel a partir da branch `main`, sem etapa de build.
 
 | Item | Valor |
 |---|---:|
-| JS de aplicação | ~3.800 linhas |
-| `app.js` | 1.721 linhas |
-| `charts.js` | 725 linhas |
-| `etl.js` | 787 linhas |
+| JS de aplicação | ~4.250 linhas (16 arquivos) |
+| `app.js` | 369 linhas (composition root) |
+| `etl.js` | 786 linhas |
+| `charts.js` | 724 linhas |
+| `import.js` | 390 linhas |
+| `persistence.js` | 344 linhas |
+| `filters.js` | 333 linhas |
 | `state.js` | 225 linhas |
-| `ui.js` | 219 linhas |
-| `supabase.js` | 81 linhas |
-| `analytics.js` + `worker.js` | 48 linhas |
-| CSS | 1.076 linhas |
-| HTML | 547 linhas |
-| Testes | 104 em 11 arquivos |
-| Migrações SQL | 3 |
+| `ui.js` | 218 linhas |
+| `normalize.js` | 188 linhas |
+| `banner.js` | 186 linhas |
+| `table.js` | 183 linhas |
+| `supabase.js` | 127 linhas |
+| `view.js` | 98 linhas |
+| `snapshot.js` | 82 linhas |
+| `analytics.js` + `worker.js` | 63 linhas |
+| CSS | 1.075 linhas (`styles.css`) + Tailwind compilado (19,4 KB) |
+| HTML | 531 linhas |
+| Testes | 131 em 13 arquivos |
+| Migrações SQL | 4 |
 | Vendor | 2,66 MB no total |
 | Dataset de referência | ~1,9 mil registros |
 | Snapshot remoto | ~2,2 MB após o trim (número registrado na auditoria original) |
@@ -96,18 +104,27 @@ O deploy é feito pela Vercel a partir da branch `main`, sem etapa de build.
 Dashboard TD/
 ├─ index.html                  # shell da SPA, 3 abas, CSP, ordem de carga dos scripts
 ├─ assets/
-│  ├─ css/styles.css           # tema, componentes, overrides (1.076 linhas)
+│  ├─ css/styles.css           # tema, componentes, overrides (1.075 linhas)
+│  ├─ css/tailwind.css         # Tailwind 3.4.16 compilado e versionado (19,4 KB)
 │  └─ js/
-│     ├─ etl.js                # parsing, mapeamento e canonicalização (787 linhas)
+│     ├─ etl.js                # parsing, mapeamento e canonicalização (786 linhas)
 │     ├─ state.js              # filtros, snapshots e compareRecords (225 linhas)
-│     ├─ ui.js                 # escapeHtml, formatadores, toast, modal (219 linhas)
-│     ├─ charts.js             # 7 gráficos Chart.js (725 linhas)
-│     ├─ supabase.js           # cliente REST SELECT/INSERT (81 linhas)
-│     ├─ app.js                # orquestrador: DOM, filtros, tabela, import, persistência (1.721 linhas)
-│     ├─ worker.js             # parse do Excel em Web Worker (12 linhas)
-│     └─ analytics.js          # Vercel Analytics condicional (36 linhas)
-├─ supabase/migrations/        # 3 migrações (tabela/RLS, trigger, hardening)
-├─ tests/                      # 11 arquivos, 104 testes
+│     ├─ ui.js                 # escapeHtml, formatadores, toast, modal (218 linhas)
+│     ├─ charts.js             # 7 gráficos Chart.js (724 linhas)
+│     ├─ supabase.js           # cliente REST SELECT/INSERT (127 linhas)
+│     ├─ normalize.js          # índice de busca, cópia enxuta, referência mensal (188 linhas)
+│     ├─ filters.js            # filtros, busca e ordenação (333 linhas)
+│     ├─ view.js               # KPIs e visões agregadas (98 linhas)
+│     ├─ snapshot.js           # apresentação do snapshot restaurado (82 linhas)
+│     ├─ table.js              # tabela, paginação e CSV (183 linhas)
+│     ├─ banner.js             # card de status e KPIs (186 linhas)
+│     ├─ persistence.js        # Supabase + IndexedDB (344 linhas)
+│     ├─ import.js             # upload, parse, comparação e relatório (390 linhas)
+│     ├─ app.js                # composition root: DOM, eventos e injeção de dependências (369 linhas)
+│     ├─ worker.js             # parse do Excel em Web Worker (11 linhas)
+│     └─ analytics.js          # Vercel Analytics condicional (52 linhas)
+├─ supabase/migrations/        # 4 migrações (tabela/RLS, trigger, hardening, histórico)
+├─ tests/                      # 13 arquivos, 131 testes
 ├─ tools/serve.mjs             # servidor estático local
 ├─ vendor/                     # libs offline (2,66 MB no total)
 ├─ data/                       # planilha de referência do smoke test
@@ -120,18 +137,23 @@ Dashboard TD/
 
 ```text
 index.html
-  ├─ vendor/tailwind.js + tailwind.config inline
   ├─ vendor/chart.umd.min.js
   ├─ vendor/fontawesome/css/all.min.css
   ├─ vendor/fonts/plus-jakarta-sans.css
+  ├─ assets/css/tailwind.css   # Tailwind compilado (F7)
   ├─ assets/css/styles.css
   └─ assets/js (defer, nesta ordem)
-       etl.js → ui.js → charts.js → state.js → supabase.js → app.js
+       etl.js → ui.js → charts.js → state.js → supabase.js → normalize.js →
+       filters.js → view.js → snapshot.js → table.js → banner.js →
+       persistence.js → import.js → app.js
        analytics.js (type="module")
 ```
 
 > A ordem dos scripts é um **contrato implícito**: `app.js` assume que todos os
-> globals (`ETL`, `UI`, `Charts`, `DashboardState`, `SupabaseStorage`) já existem.
+> globals (`ETL`, `UI`, `Charts`, `DashboardState`, `SupabaseStorage`,
+> `DashboardNormalize`, `DashboardFilters`, `DashboardView`, `DashboardSnapshot`,
+> `DashboardTable`, `DashboardBanner`, `DashboardPersistence` e
+> `DashboardImport`) já existam.
 
 ---
 
@@ -955,7 +977,7 @@ jobs:
 
 | | |
 |---|---|
-| **Arquivos** | `tests/payload.test.mjs` · `tests/ui.test.mjs` · `tests/hardening.test.mjs` |
+| **Arquivos** | `tests/payload.test.mjs` · `tests/xss.test.mjs` · `tests/import-worker-fallback.test.mjs` |
 | **Esforço** | 🟡 ~2-4 h |
 | **Risco** | Baixo |
 
@@ -987,10 +1009,54 @@ jobs:
 
 **Critérios de aceite**
 
-- [ ] Payload tem limite absoluto testado
-- [ ] Pelo menos um teste por sink de HTML (ou `openModal` deixa de aceitar HTML cru)
-- [ ] Fallback do Worker tem teste de não congelamento/não duplicação
-- [ ] Comparação tem teste de campo novo do parser
+- [x] Payload tem limite absoluto testado
+- [x] Pelo menos um teste por sink de HTML (ou `openModal` deixa de aceitar HTML cru)
+- [x] Fallback do Worker tem teste de não congelamento/não duplicação
+- [x] Comparação tem teste de campo novo do parser
+
+**Execução adotada**
+
+Nenhum arquivo de produção mudou: o F10 é uma lacuna de **cobertura**, e a
+correção foi escrever os testes que faltavam. Quatro arquivos foram tocados:
+
+1. **T3 — orçamento absoluto** (`tests/payload.test.mjs`):
+   `PAYLOAD_BUDGET_BYTES = 2_500_000` para 2.000 registros. O harness grava
+   694.677 bytes nessa escala; o snapshot real de ~1,9 mil registros chega a
+   ~2,2 MB porque cada processo tem mais campos preenchidos. O teto cobre o
+   dataset real com margem e ainda reprova o retorno do `_search` ou de campos
+   vazios ao payload.
+2. **B6 — campo novo do parser** (`tests/payload.test.mjs`): decisão registrada
+   — **campo novo não vazio conta como atualização; campo vazio (`null`, `''`,
+   `[]`, `undefined`) é ignorado**. É o que mantém a linha antiga do banco
+   (formato cheio) comparável com o registro novo (formato enxuto, M1).
+3. **T4 — teste por sink** (`tests/xss.test.mjs`, novo): payload malicioso
+   (`<img src=x onerror=…>` e `"><script>…`) injetado em **tabela, banner,
+   selects, toast e modal**. O corpo do modal continua sendo HTML por design
+   (os fragmentos são montados pelo chamador), então o teste também confere,
+   de forma estática e tolerante a reformatação, que todo dado dinâmico dos
+   quatro chamadores de `import.js` passa por `UI.escapeHtml`/`formatNumber`.
+4. **M5 — fallback do Worker** (`tests/import-worker-fallback.test.mjs`, novo):
+   harness com `Worker` falso, `parseWorkbook` instrumentado e relógio
+   controlável. Prova que (a) o aviso “Processando…” é pintado **antes** do
+   parse, (b) o parse só roda na janela ociosa (`requestIdleCallback`) ou no
+   próximo tick, (c) dois erros do Worker resultam em **um** parse, (d) erro
+   tardio depois do timeout de 90 s **não** parseia, e (e) Worker bem-sucedido
+   nunca recorre ao fallback.
+
+**Validação dos testes (mutação)**
+
+Cada teste novo foi verificado contra uma mutação do código de produção, para
+garantir que não passa por acaso:
+
+| Mutação | Teste que falha |
+|---|---|
+| `UI.escapeHtml(item.analista)` → `item.analista` (`table.js`) | `tabela escapa todos os campos dinâmicos da linha` |
+| `global.UI.escapeHtml(file.name)` → `file.name` (`import.js`) | `chamadores do modal em import.js escapam file.name…` |
+| remoção da guarda `if (settled) return;` (`import.js`) | `dois erros do Worker ainda resultam em um único parse` |
+| remoção de `if (isEmptyValue(value)) return;` (`state.js`) | `B6: campo novo não vazio…` e `a comparação ignora _search…` |
+
+> Executado em 21/10/2026: suíte 131/131 (118 + 13 novos). Nenhum arquivo de
+> aplicação foi alterado; commit `3b0078a`.
 
 ---
 
@@ -999,36 +1065,38 @@ jobs:
 > Feita em 21/10/2026 contra o commit `f185f84`, antes da consolidação deste
 > documento. Status: ✅ confirmado no código/teste/live · 🟡 parcial · ⏳
 > pendente. “Live” = consulta read-only ao Supabase de produção; nenhum dado foi
-> alterado.
+> alterado. A coluna de status foi atualizada conforme os achados foram
+> fechados (F2, F7, F9 e F10).
 
-**Resumo:** 23 confirmados, 8 parciais e 3 pendentes. A versão anterior declarava
-32 concluídos e 2 pendentes; a contagem correta é 31 e 3, e 8 dos 31 “concluídos”
-não atendem integralmente ao critério de aceite.
+**Resumo:** 28 confirmados, 4 parciais e 2 pendentes. Na auditoria original eram
+23 confirmados, 8 parciais e 3 pendentes; a versão anterior declarava 32
+concluídos e 2 pendentes, e 8 dos 31 “concluídos” não atendiam integralmente ao
+critério de aceite.
 
 | Item | Status | Evidência / lacuna |
 |---|---|---|
 | A1 | ✅ | Live: `anon` tem `SELECT`/`INSERT`; `UPDATE`/`DELETE`/`TRUNCATE` são negados; RLS ligada. README atualizado. Checkboxes internos continuam `[ ]`. |
-| A2 | 🟡 | Estado vazio persistente e com dataset transitório (8 s) testados. Depois de 8 s só resta `#last-read-header` com data/hora, sem arquivo nem total. O texto original dizia “visível em 4,5 s / oculto em ~6 s”. |
+| A2 | ✅ | Estado vazio persistente e com dataset transitório (8 s) testados. Depois de 8 s o cabeçalho mantém `#dataset-summary` com o nome do arquivo e “X de Y processos” (F9). O texto original dizia “visível em 4,5 s / oculto em ~6 s”. |
 | A3 | ✅ | `_search` é recalculado depois da canonicalização (`app.js:215-220`); `tests/search.test.mjs:340+` cobre com/sem acento. |
 | A4 | ✅ | Migração e função live usam `delete ... where id in (...)`; teste de regressão existe, mas falha no Windows por CRLF (F1). |
 | M1 | ✅ | Live: 1.944 registros, 0 com `_search`. `toPersistedRecord` também remove `null`/`''`/arrays vazios; o bloco original mostrava só `_search` (deriva documental; ver DA4 b). |
-| M2 | 🟡 | Live: `created_at` e `updated_at` são do servidor, mas `supabase.js:70` ainda prefere `metadata.loadedAt`; `tests/persist.test.mjs:660` espera o valor do cliente; o cache local pós-save também fica com o valor do cliente. |
+| M2 | ✅ | `created_at` do servidor é a única referência de ordenação e de “Última leitura” (F2); o `loadedAt` do cliente fica só como diagnóstico (`metadata.clientLoadedAt`). |
 | M3 | ✅ | Live: índice único `excel_imports_singleton` e check `excel_imports_records_is_array`. |
 | M4 | ✅ | SheetJS 0.20.3 no bundle e no manifesto. O hash só confere em LF; no Windows o teste falha por CRLF (F1). |
-| M5 | 🟡 | Guardas `settled` e `runWhenIdle` existem, mas o fallback ainda executa `parseWorkbook` síncrono na main thread se o Worker falhar antes do timeout; “interface não congela” não é garantido/testado. |
+| M5 | ✅ | `tests/import-worker-fallback.test.mjs` prova que o fallback do Worker roda uma única vez, só depois do aviso, e nunca após o timeout (F10). |
 | M6 | ✅ | Live: ACL da função só tem `postgres` e `service_role`; `anon` sem `EXECUTE`. |
-| M7 | 🟡 | CSP existe e é testada, mas `script-src` inclui `'unsafe-inline'` **e** `'unsafe-eval'`; o bloco documentado cita apenas `'unsafe-inline'`. |
+| M7 | ✅ | `script-src 'self'` e `style-src 'self'`, sem `'unsafe-inline'` nem `'unsafe-eval'`; `connect-src` restrito ao host exato do projeto (F7). |
 | M8 | ✅ | Live: `search_path=""` na função de trigger. |
 | B1 | ✅ | `canonicalizeDataset` roda antes do rebuild de `_search` (`app.js:215-220`). |
 | B2 | ✅ | `csvNumberCell` mantém negativo como número; `tests/payload.test.mjs:404+` cobre. |
 | B3 | ✅ | Funcional: `statusBannerLocked` no mesmo `#banner-text`. O texto original ainda falava em `#banner-error` separado (deriva documental). |
 | B4 | ✅ | Limite `PERSIST_RETRY_LIMIT = 10`; `endSnapshotValidation` retoma a persistência. |
 | B5 | ✅ | `LATEST` só em comentário; `isSuperset` documentado como API pública. |
-| B6 | 🟡 | `recordFingerprint` ignora `_search`, `sourceRowNumber` e vazios, mas ainda inclui todas as chaves; campo novo no parser marca todos como atualizados (reproduzido: `updated=1`, `unchanged=0`). |
+| B6 | ✅ | Decisão: campo novo **não vazio** conta como atualização; campo vazio é ignorado. Cobrido em `tests/payload.test.mjs` (F10). |
 | B7 | ✅ | Live: trigger `excel_imports_touch_updated_at`. |
 | B8 | ✅ | `parseExcelDate` rejeita seriais fora de 1–80.000. |
-| B9 | 🟡 | `table-count` mostra “3 de 4” na aba Tabela; o KPI só mostra filtrados e o Dashboard não tem “861 de 1.944” após o banner. As métricas originais 858/1.942 estão velhas (live: 861/1.944). |
-| B10 | ⏳ | Tailwind Play CDN continua compilando em runtime. |
+| B9 | ✅ | A tabela mostra “Exibindo 1–50 de 861 filtrados (1.944 no total)”, o KPI ganhou o hint “861 de 1.944 · filtro 2026” e o cabeçalho mantém o resumo após o timer do banner (F9). |
+| B10 | ✅ | Tailwind 3.4.16 compilado para `assets/css/tailwind.css` e versionado; o Play CDN saiu do `index.html` (F7). |
 | B11 | ✅ | Manifesto com Tailwind 3.4.16, analytics 2.0.1 e versões reais. |
 | B12 | ✅ | `role="group"`, `aria-controls`, `aria-haspopup`, `aria-expanded` e um único rótulo no ano. |
 | B13 | ✅ | Guarda para `tab` nula no handler do tablist, com teste. |
@@ -1038,10 +1106,10 @@ não atendem integralmente ao critério de aceite.
 | B17 | ✅ | `serve.mjs` envia `Cache-Control: no-store`; `ensureXlsxLoaded` usa `?v=` e retry com `&t=`. |
 | T1 | ✅ | `tests/banner.test.mjs` cobre estado vazio persistente, com dataset transitório e refresh. |
 | T2 | ✅ | `tests/search.test.mjs:340+` cobre acento, sem acento, parcial e operação. |
-| T3 | 🟡 | `tests/payload.test.mjs:353-367` só exige queda relativa de 25%; não há limite absoluto. |
-| T4 | 🟡 | `escapeHtml` é testado isoladamente; não há teste por sink. `ui.openModal` aceita HTML cru. |
+| T3 | ✅ | Orçamento absoluto de 2,5 MB para 2.000 registros, testado em `tests/payload.test.mjs` (F10). |
+| T4 | ✅ | `tests/xss.test.mjs` cobre tabela, banner, selects, toast e modal com payload malicioso; `openModal` mantém o corpo HTML por design e os chamadores de `import.js` são verificados (F10). |
 | T5 | ✅ | `tests/vendor.test.mjs:74-111` exige SheetJS >= 0.20.2 e confere manifesto/cache-busting. |
-| V1–V12 | ✅ | Confirmados por código e/ou live, com duas ressalvas de redação/cobertura: V3 diz “upsert é rejeitado”, mas um upsert válido substitui a linha; V7 não tem teste por sink (ver T4). |
+| V1–V12 | ✅ | Confirmados por código e/ou live, com uma ressalva de redação: V3 diz “upsert é rejeitado”, mas um upsert válido substitui a linha. A cobertura por sink de XSS (V7) existe desde o F10. |
 
 ### Deriva documental da versão anterior
 
@@ -1132,7 +1200,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 |---|---|---|
 | F7 | Tailwind compilado + CSP endurecida | screenshots + console limpo |
 | F6 | plano de escala e teste de carga | métricas 2×/5×/10× |
-| F10 | limites absolutos + testes de sink/Worker/fingerprint | suíte verde nos dois SOs |
+| F10 | limites absolutos + testes de sink/Worker/fingerprint | suíte verde nos dois SOs — **feito** (131/131, commit `3b0078a`) |
 
 ---
 
@@ -1181,6 +1249,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Fase 3 | F4 | opção A + histórico append-only + rollback administrativo | subagente F4 | commit `2e98b33`; migration `20261021120000_excel_imports_history.sql` aplicada no remoto (`20261021163449`); 114/114; trigger validado em transação revertida |
 | 21/10/2026 | Fase 3 | F7 | Tailwind compilado + CSP sem `unsafe-*` + `connect-src` exato | subagente F7 | commit `48f77db`; 115/115; capturas 1400×1200 idênticas byte a byte; console limpo |
 | 21/10/2026 | Fase 3 | F8 | `.gitignore`, CI Linux/Windows e fonte única de valor vazio | subagente F8 | commit `17b7c15`; 118/118; D4 = ignorar `.agents/` |
+| 21/10/2026 | Fase 3 | F10 | T3 (orçamento absoluto), T4 (teste por sink), M5 (fallback do Worker) e B6 (campo novo) | subagentes F10 | commit `3b0078a`; 131/131; 13 testes novos; 4 mutações detectadas pelos testes |
 | | | | | | |
 | | | | | | |
 
@@ -1325,7 +1394,7 @@ from public.excel_imports;
 | V4 | `records = NULL` / `[]` rejeitados | `SNAPSHOT_INVALID` (`20261019141213_...sql:31-35`) e check `excel_imports_records_is_array` |
 | V5 | Sem SQL injection no trigger | sem SQL dinâmico; `raise exception` com placeholders `%` |
 | V6 | Atomicidade delete + insert | rollback preserva o estado em qualquer falha |
-| V7 | XSS mitigado nos dados | `escapeHtml` nos sinks de registros; `ui.openModal` ainda aceita HTML cru e a cobertura por sink é **T4** |
+| V7 | XSS mitigado nos dados | `escapeHtml` nos sinks de registros; `ui.openModal` mantém HTML cru no corpo por design, com cobertura por sink em `tests/xss.test.mjs` (**T4**, fechado no F10) |
 | V8 | CSV injection bloqueado | `csvTextCell` prefixa `'`; negativos usam `csvNumberCell` (B2) |
 | V9 | Comparação client-side **e** server-side | redundância benéfica, manter |
 | V10 | Parser rejeita cabeçalho não reconhecido | `detectHeaderRowIndex` acha cabeçalho deslocado; mensagem de erro clara |
@@ -1347,4 +1416,4 @@ from public.excel_imports;
 | F7 | `index.html`, `vendor/tailwind.js`, `assets/css/styles.css` |
 | F8 | raiz, `.github/`, `.gitignore`, `.gitattributes`, `ANALISE.md` |
 | F9 | `assets/js/app.js`, `index.html`, `tests/banner.test.mjs`, `tests/search.test.mjs` |
-| F10 | `tests/payload.test.mjs`, `tests/ui.test.mjs`, `tests/hardening.test.mjs`, `assets/js/ui.js` |
+| F10 | `tests/payload.test.mjs`, `tests/xss.test.mjs`, `tests/import-worker-fallback.test.mjs` |
