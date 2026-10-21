@@ -38,7 +38,7 @@
 |---|---|---|---|
 | F1 | 🔴 P0 | Suíte não é portável entre sistemas (CRLF) | `[x]` |
 | F2 | 🔴 P0 | “Mais recente vence” ainda usa timestamp do cliente | `[x]` |
-| F3 | 🟠 P1 | Sem timeout de rede e restauração bloqueante | `[ ]` |
+| F3 | 🟠 P1 | Sem timeout de rede e restauração bloqueante | `[x]` |
 | F4 | 🟠 P1 | Escrita pública sem autenticação e sem histórico | `[ ]` |
 | F5 | 🟠 P1 | `app.js` monolítico e acoplamento por globals | `[ ]` |
 | F6 | 🟠 P1 | Snapshot inteiro e limite de escala | `[ ]` |
@@ -512,11 +512,17 @@ function fetchWithTimeout(url, options, timeoutMs) {
 
 **Critérios de aceite**
 
-- [ ] Fetch remoto tem timeout configurável
-- [ ] Offline/rede lenta mostra o cache local sem esperar o Supabase
-- [ ] POST pendurado não deixa a UI em “Processando…” indefinidamente
-- [ ] Nenhum `unhandled rejection` no console
-- [ ] Teste com fetch que nunca resolve (ou demora) cobre o timeout
+- [x] Fetch remoto tem timeout configurável
+- [x] Offline/rede lenta mostra o cache local sem esperar o Supabase
+- [x] POST pendurado não deixa a UI em “Processando…” indefinidamente
+- [x] Nenhum `unhandled rejection` no console
+- [x] Teste com fetch que nunca resolve (ou demora) cobre o timeout
+
+> Executado em 21/10/2026: `fetchWithTimeout` com `AbortController` e 15 s no
+> `supabase.js`; `HEAD` do analytics com 5 s; `restoreState({ onLocal })` pinta o
+> IndexedDB antes do Supabase e reconcilia depois; a importação avisa quando o
+> banco não responde. Suíte: 113/113 (5 testes novos). Validado no navegador
+> local após reload.
 
 ---
 
@@ -1094,6 +1100,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Fase 1 | F1 | `.gitattributes`, normalização LF e teste SQL EOL-safe | subagente F1 | commit `0c05e2f`; 104/104 no Windows; manifesto do analytics corrigido |
 | 21/10/2026 | Fase 1 | F2 | `created_at` server-authoritative no save e na restauração | subagente F2 | commit `9735256`; 107/107; 3 testes novos |
 | 21/10/2026 | Fase 2 | F9 | resumo persistente no cabeçalho + hint do KPI + texto da tabela | subagente F9 | commit `1f561bb`; 108/108; validado no navegador local |
+| 21/10/2026 | Fase 2 | F3 | timeout de rede, restore local-first e mensagem de importação | subagente F3 | commit `0499816`; 113/113; 5 testes novos |
 | | | | | | |
 | | | | | | |
 
