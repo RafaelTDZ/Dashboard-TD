@@ -340,11 +340,17 @@ test('migrations espelham o histórico remoto e mantêm um único snapshot', () 
   assert.match(migration, /SNAPSHOT_DUPLICATE_KEYS/);
   assert.match(migration, /delete from public\.excel_imports/);
 
+  // As versions locais precisam ser EXATAMENTE as que o banco registrou: o
+  // `supabase db push` casa migration local × remota pelo prefixo de 14
+  // dígitos e recusa o push com "Remote migration versions not found in local
+  // migrations directory" quando diverge. As duas últimas foram aplicadas pelo
+  // painel/MCP, que carimba a version no momento da aplicação — por isso os
+  // arquivos locais foram renomeados para 20261021163449 e 20261021175531.
   const versions = readdirSync(migrationsDir)
     .map((name) => name.match(/^(\d{14})_/))
     .filter(Boolean)
     .map((match) => match[1]);
-  assert.deepEqual(versions, ['20261009142126', '20261019141213', '20261020120000', '20261021120000', '20261021150000']);
+  assert.deepEqual(versions, ['20261009142126', '20261019141213', '20261020120000', '20261021163449', '20261021175531']);
 });
 
 test('migração de endurecimento fecha o bypass de privilégios e o DELETE sem WHERE', () => {
@@ -394,7 +400,7 @@ test('migração de endurecimento fecha o bypass de privilégios e o DELETE sem 
 });
 
 test('F4: histórico append-only e rollback', () => {
-  const history = readFileSync(join(root, 'supabase', 'migrations', '20261021120000_excel_imports_history.sql'), 'utf8');
+  const history = readFileSync(join(root, 'supabase', 'migrations', '20261021163449_excel_imports_history.sql'), 'utf8');
   const readme = readFileSync(join(root, 'README.md'), 'utf8');
   const code = sqlCode(history);
 
@@ -460,7 +466,7 @@ test('F4: histórico append-only e rollback', () => {
   assert.match(readme, /excel_imports_history/);
   assert.match(readme, /excel_imports_rollback/);
   assert.match(readme, /risco residual/i);
-  assert.match(readme, /20261021120000_excel_imports_history\.sql/);
+  assert.match(readme, /20261021163449_excel_imports_history\.sql/);
 });
 
 test('higiene: .gitignore, EOL e CI cobrem artefatos e os dois sistemas (F8)', () => {

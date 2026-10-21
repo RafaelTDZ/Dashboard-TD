@@ -564,7 +564,7 @@ function fetchWithTimeout(url, options, timeoutMs) {
 
 | | |
 |---|---|
-| **Arquivos** | `assets/js/supabase.js` · `supabase/migrations/20261020120000_harden_excel_imports.sql` · `supabase/migrations/20261021120000_excel_imports_history.sql` · `README.md` |
+| **Arquivos** | `assets/js/supabase.js` · `supabase/migrations/20261020120000_harden_excel_imports.sql` · `supabase/migrations/20261021163449_excel_imports_history.sql` · `README.md` |
 | **Esforço** | 🔴 ~1-2 dias (depende da decisão) |
 | **Risco** | Alto (integridade dos dados) |
 
@@ -1170,7 +1170,7 @@ garantir que não passa por acaso:
 
 | | |
 |---|---|
-| **Arquivos** | `supabase/migrations/20261021150000_protect_public_write.sql` · `assets/js/persistence.js` · `assets/js/import.js` · `tests/protection.test.mjs` |
+| **Arquivos** | `supabase/migrations/20261021175531_protect_public_write.sql` · `assets/js/persistence.js` · `assets/js/import.js` · `tests/protection.test.mjs` |
 | **Esforço** | 🟡 ~2-3 h |
 | **Risco** | Médio (muda o caminho de escrita) |
 
@@ -1193,8 +1193,8 @@ mesmo com as guardas do trigger, porque a chave publishable está no cliente:
 
 **Correção adotada (no banco, que é o único ponto que contém a escrita)**
 
-Migration `20261021150000_protect_public_write.sql` (aplicada em produção como
-`20261021175531`):
+Migration `20261021175531_protect_public_write.sql` (aplicada em produção com
+esta mesma version — ver "Version das migrations" abaixo):
 
 | Guarda | Onde | Efeito |
 |---|---|---|
@@ -1252,6 +1252,31 @@ inalcançável. O canal real da recusa é o `validationError` devolvido por
 `persistNow()`, que o fluxo de importação consome. O callback e o wrapper
 correspondente em `app.js` foram removidos (mesma linha do B5: "código morto
 removido"), e há teste que garante que ele não volta.
+
+### Version das migrations (regra que o `supabase db push` impõe)
+
+O CLI do Supabase casa migration local × remota pelo **prefixo de 14 dígitos**
+do nome do arquivo. Se o remoto tem uma version que não existe localmente, o
+push é recusado com:
+
+```text
+Remote migration versions not found in local migrations directory.
+```
+
+As duas últimas migrations foram aplicadas pelo MCP (`apply_migration`), que
+**carimba a version no momento da aplicação** — não usa o nome do arquivo
+local. O resultado foi:
+
+| Arquivo local (antes) | Version remota | Arquivo local (depois) |
+|---|---|---|
+| `20261021120000_excel_imports_history.sql` | `20261021163449` | `20261021163449_excel_imports_history.sql` |
+| `20261021150000_protect_public_write.sql` | `20261021175531` | `20261021175531_protect_public_write.sql` |
+
+**Regra**: quando uma migration for aplicada pelo painel do Supabase (ou pelo
+MCP) e não pelo `supabase db push`, o arquivo local precisa ser **renomeado**
+para a version que o banco registrou. O conteúdo do SQL não muda — só o nome.
+O `tests/static.test.mjs` fixa a lista de versions para que a divergência não
+volte a passar despercebida.
 
 ---
 
@@ -1447,12 +1472,13 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Fase 3 | F5 passo 3 | persistência Supabase/IndexedDB em `persistence.js` | subagente F5 | commit `32cde6c`; 113/113; `app.js` 1.524→1.232 |
 | 21/10/2026 | Fase 3 | F5 passo 4 | upload, parse, comparação e relatório em `import.js` | subagente F5 | commit `b084e52`; 113/113; `app.js` 1.232→898 |
 | 21/10/2026 | Fase 3 | F5 passo 5 | normalização, filtros, view e snapshot em módulos | subagente F5 | commit `abe373a`; 113/113; `app.js` 898→368; smoke no navegador local |
-| 21/10/2026 | Fase 3 | F4 | opção A + histórico append-only + rollback administrativo | subagente F4 | commit `2e98b33`; migration `20261021120000_excel_imports_history.sql` aplicada no remoto (`20261021163449`); 114/114; trigger validado em transação revertida |
+| 21/10/2026 | Fase 3 | F4 | opção A + histórico append-only + rollback administrativo | subagente F4 | commit `2e98b33`; migration `20261021163449_excel_imports_history.sql` aplicada no remoto com a mesma version; 114/114; trigger validado em transação revertida |
 | 21/10/2026 | Fase 3 | F7 | Tailwind compilado + CSP sem `unsafe-*` + `connect-src` exato | subagente F7 | commit `48f77db`; 115/115; capturas 1400×1200 idênticas byte a byte; console limpo |
 | 21/10/2026 | Fase 3 | F8 | `.gitignore`, CI Linux/Windows e fonte única de valor vazio | subagente F8 | commit `17b7c15`; 118/118; D4 = ignorar `.agents/` |
 | 21/10/2026 | Fase 3 | F10 | T3 (orçamento absoluto), T4 (teste por sink), M5 (fallback do Worker) e B6 (campo novo) | subagentes F10 | commit `3b0078a`; 131/131; 13 testes novos; 4 mutações detectadas pelos testes |
 | 21/10/2026 | Fase 3 | F6 | opção A com limite de 6 MB + medição 1×/2×/5×/10× (cliente e banco) | orquestrador | commit `bc27e6f`; 137/137; `tools/loadtest.mjs` e `tools/loadtest.sql`; snapshot de produção restaurado via `excel_imports_rollback` (md5 conferido); B16 fechado (fonte v12) |
-| 21/10/2026 | Fase 3 | F11 | teto de payload (6 MB), cooldown de 30 s e janela de 5 versões no histórico | orquestrador | migration `20261021150000_protect_public_write.sql` aplicada (`20261021175531`); 3 guardas verificadas em transação revertida; snapshot de produção intacto (md5 `0a7bb28d…`, 1.946 registros) |
+| 21/10/2026 | Fase 3 | F11 | teto de payload (6 MB), cooldown de 30 s e janela de 5 versões no histórico | orquestrador | migration `20261021175531_protect_public_write.sql` aplicada com a mesma version; 3 guardas verificadas em transação revertida; snapshot de produção intacto (md5 `0a7bb28d…`, 1.946 registros) |
+| 21/10/2026 | Fase 3 | F11 | version das migrations locais alinhada com o remoto (`supabase db push` destravado) | orquestrador | `20261021120000` → `20261021163449` e `20261021150000` → `20261021175531`; suíte 148/148 |
 | | | | | | |
 | | | | | | |
 
@@ -1632,4 +1658,4 @@ from public.excel_imports;
 | F8 | raiz, `.github/`, `.gitignore`, `.gitattributes`, `ANALISE.md` |
 | F9 | `assets/js/app.js`, `index.html`, `tests/banner.test.mjs`, `tests/search.test.mjs` |
 | F10 | `tests/payload.test.mjs`, `tests/xss.test.mjs`, `tests/import-worker-fallback.test.mjs` |
-| F11 | `supabase/migrations/20261021150000_protect_public_write.sql`, `assets/js/persistence.js`, `assets/js/import.js`, `tests/protection.test.mjs` |
+| F11 | `supabase/migrations/20261021175531_protect_public_write.sql`, `assets/js/persistence.js`, `assets/js/import.js`, `tests/protection.test.mjs` |

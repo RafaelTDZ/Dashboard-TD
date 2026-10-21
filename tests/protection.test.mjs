@@ -9,7 +9,7 @@ import test from 'node:test';
 // A escrita do snapshot é pública (a chave publishable do Supabase escreve em
 // public.excel_imports). A proteção mora em dois lugares:
 //
-//   1. no banco — a migration 20261021150000_protect_public_write.sql, com o
+//   1. no banco — a migration 20261021175531_protect_public_write.sql, com o
 //      teto de payload (6.291.456 bytes), o cooldown de 30 s entre duas
 //      escritas e a janela de retenção do histórico (5 últimas versões);
 //   2. no cliente — o módulo de persistência reconhece as recusas novas
@@ -28,7 +28,7 @@ import test from 'node:test';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
-const migrationPath = join(root, 'supabase', 'migrations', '20261021150000_protect_public_write.sql');
+const migrationPath = join(root, 'supabase', 'migrations', '20261021175531_protect_public_write.sql');
 const migrationSql = readFileSync(migrationPath, 'utf8');
 
 const stateSource = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
