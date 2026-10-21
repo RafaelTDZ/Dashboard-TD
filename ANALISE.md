@@ -46,6 +46,7 @@
 | F8 | 🟡 P2 | Higiene de engenharia e documentação | `[x]` |
 | F9 | 🟠 P1 | Resumo do dataset e total não persistem no Dashboard | `[x]` |
 | F10 | 🟡 P2 | Cobertura de testes não comprova T3/T4/M5/B6 | `[x]` |
+| F11 | 🟠 P1 | Escrita pública sem rate limit, teto ou retenção | `[x]` |
 
 > F9 e F10 vieram da auditoria dos 34 itens originais (21/10/2026); F1–F8 são da análise estrutural.
 
@@ -90,8 +91,8 @@ O deploy é feito pela Vercel a partir da branch `main`, sem etapa de build.
 | `analytics.js` + `worker.js` | 63 linhas |
 | CSS | 1.075 linhas (`styles.css`) + Tailwind compilado (19,4 KB) |
 | HTML | 531 linhas |
-| Testes | 137 em 14 arquivos |
-| Migrações SQL | 4 |
+| Testes | 148 em 15 arquivos |
+| Migrações SQL | 5 |
 | Vendor | 2,66 MB no total |
 | Dataset de referência | ~1,9 mil registros |
 | Snapshot remoto | 2.440.283 bytes (1.944 registros) |
@@ -124,8 +125,8 @@ Dashboard TD/
 │     ├─ app.js                # composition root: DOM, eventos e injeção de dependências (369 linhas)
 │     ├─ worker.js             # parse do Excel em Web Worker (11 linhas)
 │     └─ analytics.js          # Vercel Analytics condicional (52 linhas)
-├─ supabase/migrations/        # 4 migrações (tabela/RLS, trigger, hardening, histórico)
-├─ tests/                      # 14 arquivos, 137 testes
+├─ supabase/migrations/        # 5 migrações (tabela/RLS, trigger, hardening, histórico, proteção)
+├─ tests/                      # 15 arquivos, 148 testes
 ├─ tools/serve.mjs             # servidor estático local
 ├─ tools/loadtest.mjs          # teste de carga do cliente (F6, sem rede)
 ├─ tools/loadtest.sql          # harness de carga do banco (sempre revertido)
@@ -165,11 +166,19 @@ index.html
 | Módulo | Papel | Depende de | Observação |
 |---|---|---|---|
 | `etl.js` | Parsing do workbook, aliases de colunas, datas, moedas, canonicalização | `XLSX` (global) | Núcleo quase puro; roda também no Worker |
-| `state.js` | Filtros padrão, validação de snapshot, `compareRecords`, fingerprint | Nada de DOM | Bom candidato a módulo compartilhado |
+| `state.js` | Filtros padrão, validação de snapshot, `compareRecords`, fingerprint, `isEmptyValue` | Nada de DOM | Fonte única da regra de valor vazio |
 | `ui.js` | Escape HTML, formatadores, toast, modal, clipboard, download | DOM | Sem dependência dos demais módulos |
 | `charts.js` | 7 gráficos, tema claro/escuro, modo USD/QTD | `Chart.js`, `UI` | Redesenha todos os gráficos a cada `refresh()` |
-| `supabase.js` | `getLatestSnapshot` / `saveSnapshot` via REST | `fetch`, `DashboardState` | Chave publishable embutida (esperado) |
-| `app.js` | Composição: eventos, filtros, tabela, CSV, importação, IndexedDB, banners | Todos os anteriores | Ponto único de orquestração |
+| `supabase.js` | `getLatestSnapshot` / `saveSnapshot` via REST | `fetch`, `DashboardState` | Chave publishable embutida (esperado); timeout de 15 s |
+| `normalize.js` | Índice de busca, cópia enxuta, referência mensal, canonicalização | `ETL`, `DashboardState.isEmptyValue` | Injetado pelo `app.js` |
+| `filters.js` | Filtros, busca, ordenação e opções dos selects | `DashboardState`, `normalize` | `populateFilterOptions` escapa todo valor dinâmico |
+| `view.js` | Estilo visual, modo USD/QTD, abas e KPIs | `Charts`, estado | Redesenho dos gráficos isolado aqui |
+| `snapshot.js` |Apresentação do snapshot restaurado (local-first) | `normalize`, `view`, `filters` | Decide entre cache e remoto |
+| `table.js` | Tabela, paginação, ordenação e exportação CSV | `UI`, `ETL`, `filters` | CSV com proteção contra fórmula |
+| `banner.js` | Card de status, resumo persistente e KPIs | `UI`, `ETL` | Card transitório de 8 s; resumo no cabeçalho |
+| `persistence.js` | Supabase + IndexedDB, snapshot, restauração | `normalize`, `DashboardState`, `SupabaseStorage` | `isSnapshotRejected` conhece as recusas do F11 |
+| `import.js` | Upload, parse (Worker), comparação, relatório e limite de escala | `normalize`, `state`, `UI`, `DashboardState` | Recusa payload acima de 6 MB antes de gravar |
+| `app.js` | Composition root: DOM, eventos, injeção de dependências, `refresh` | Todos os anteriores | 369 linhas; único ponto de orquestração |
 | `worker.js` | Executa `ETL.parseWorkbook` fora da main thread | `importScripts` de xlsx + etl | Evita congelar a aba no parse |
 
 ### Contratos implícitos que precisam ser preservados
@@ -564,8 +573,11 @@ function fetchWithTimeout(url, options, timeoutMs) {
 - A chave publishable está embutida no cliente (correto para esse tipo de chave).
 - `anon` pode `INSERT`; a policy é `with check (true)`.
 - O trigger valida apenas: lista não vazia, `operacao` única/presente e superset.
-- Não há autenticação, rate limit nem auditoria.
-- O trigger apaga a linha anterior; não há histórico nem rollback.
+- Não há autenticação, rate limit nem auditoria. *(o rate limit, o teto de
+  payload e a auditoria das recusas vieram no **F11**; a autenticação continua
+  fora, por decisão D1 = A)*
+- O trigger apaga a linha anterior; não há histórico nem rollback. *(o histórico
+  append-only e o rollback vieram na própria migration do F4)*
 
 **Impacto**
 
@@ -617,6 +629,9 @@ autenticação:
 5. O README documenta o modelo de escrita, o risco residual, o procedimento de
    consulta e o rollback. O `insert` direto de novos snapshots continua
    permitido — a integridade dos valores não é validada pelo servidor.
+6. O item 5 da lista original ("rate limit/monitoramento") foi entregue no
+   **F11**: teto de payload, cooldown de 30 s e janela de 5 versões no
+   histórico, com as recusas registradas no log do Postgres.
 
 **Critérios de aceite**
 
@@ -1151,19 +1166,101 @@ garantir que não passa por acaso:
 
 ---
 
+### 🟠 F11 — Proteção da escrita pública: rate limit, teto e retenção (P1)
+
+| | |
+|---|---|
+| **Arquivos** | `supabase/migrations/20261021150000_protect_public_write.sql` · `assets/js/persistence.js` · `assets/js/import.js` · `tests/protection.test.mjs` |
+| **Esforço** | 🟡 ~2-3 h |
+| **Risco** | Médio (muda o caminho de escrita) |
+
+**Evidência**
+
+O F4 decidiu pela **escrita pública** (D1 = A) e documentou o risco residual:
+*"Rate limit e monitoramento não estão implementados"*. A escrita é pública
+mesmo com as guardas do trigger, porque a chave publishable está no cliente:
+
+- **Sem limite de frequência**: qualquer pessoa (ou script) pode fazer `POST`
+  em `/rest/v1/excel_imports` em laço. Cada escrita aceita executa o trigger
+  de superset, que é O(n) no tamanho do dataset (~0,17 s a 1.944 registros) —
+  ou seja, ~6 escritas/s já saturam um núcleo do banco.
+- **Sem teto de payload**: o limite de 6 MB existia **só no cliente** (F6). Uma
+  chamada direta à API podia gravar um payload de 25 MB (10×), que é
+  exatamente o cenário que o F6 mostrou ser inviável.
+- **Histórico sem janela**: cada escrita substitui a anterior e **arquiva a
+  versão antiga** (~2,4 MB por escrita). Um laço de escrita cresceria o
+  histórico de 2,4 MB por vez, sem limite — um vetor de exaustão de disco.
+
+**Correção adotada (no banco, que é o único ponto que contém a escrita)**
+
+Migration `20261021150000_protect_public_write.sql` (aplicada em produção como
+`20261021175531`):
+
+| Guarda | Onde | Efeito |
+|---|---|---|
+| **Teto de payload** | `excel_imports_enforce_single_latest` | `SNAPSHOT_TOO_LARGE` acima de **6.291.456 bytes** (6 MB, o mesmo número do cliente) — recusado **antes** do lock e de qualquer escrita. |
+| **Cooldown de 30 s** | idem | `SNAPSHOT_COOLDOWN: aguarde N s` quando o snapshot vigente tem menos de 30 s. O teste fica **depois** do `pg_advisory_xact_lock`, para que duas importações simultâneas não passem as duas. |
+| **Janela de 5 versões** | `excel_imports_archive_history` | O histórico passa a guardar as **5 últimas** versões. Continua append-only para o cliente (sem `UPDATE`/`DELETE` concedidos a `anon`/`authenticated`): quem poda é o dono, por dentro do trigger. |
+
+**Monitoramento**: as recusas usam `raise warning`, que aparece no log do
+Postgres (Supabase → Logs Explorer). Não há tabela de auditoria porque a
+recusa **aborta a transação** — qualquer linha gravada na mesma transação
+seria desfeita junto. O que fica durável é o histórico das escritas aceitas.
+
+**Lado do cliente**: `persistence.isSnapshotRejected` passou a reconhecer
+`SNAPSHOT_TOO_LARGE` e `SNAPSHOT_COOLDOWN` (recusa do banco = o snapshot novo
+não foi gravado = o cache local não pode ser gravado, senão o que o banco
+recusou venceria o banco no próximo carregamento). `import.js` traduz as duas
+recusas em mensagens próprias: modal **"Importação adiada"** (cooldown, com
+os segundos que faltam) e **"Arquivo grande demais"** (payload) — em vez do
+modal genérico "Importação recusada pelo banco".
+
+**Validação em produção (21/10/2026, tudo revertido)**
+
+| Teste | Resultado |
+|---|---|
+| Duas escritas seguidas | 1ª aceita · 2ª `SNAPSHOT_COOLDOWN: aguarde 30 s antes de gravar outro snapshot` |
+| Payload de 7 MB | `SNAPSHOT_TOO_LARGE: 7000038 bytes excedem o limite de 6291456 bytes` |
+| 8 linhas no histórico + 1 escrita | histórico ficou com **5** linhas (as 4 mais recentes de teste + a arquivada) |
+
+Depois de cada teste: snapshot de produção intacto (1 linha, 1.946 registros,
+md5 `0a7bb28d…`), histórico com 1 linha (a versão arquivada pela importação
+legítima das 17:39).
+
+**Critérios de aceite**
+
+- [x] Teto de payload no servidor, igual ao do cliente
+- [x] Cooldown entre escritas, com mensagem para o usuário
+- [x] Histórico com janela (sem crescimento sem limite)
+- [x] Recusas visíveis no log do banco
+- [x] Snapshot de produção intacto depois dos testes
+
+> Executado em 21/10/2026: migration aplicada em produção
+> (`20261021175531_protect_public_write`); as três guardas verificadas em
+> transações revertidas; cliente com mensagens específicas; suíte verde.
+
+**Observação**: o cooldown de 30 s é um parâmetro operacional, não técnico.
+Se o uso real exigir (por exemplo, duas importações legitimately seguidas em
+segundos), o número está em um único lugar — o `interval '30 seconds'` da
+migration — e deve ser alterado junto com a documentação do README.
+
+---
+
 ### Auditoria dos 34 itens originais
 
 > Feita em 21/10/2026 contra o commit `f185f84`, antes da consolidação deste
 > documento. Status: ✅ confirmado no código/teste/live · 🟡 parcial · ⏳
 > pendente. “Live” = consulta read-only ao Supabase de produção; nenhum dado foi
 > alterado. A coluna de status foi atualizada conforme os achados foram
-> fechados (F2, F7, F9 e F10).
+> fechados (F2, F7, F9, F10, F6 e F11).
 
 **Resumo:** 35 confirmados e nenhum pendente. Na auditoria original eram 23
 confirmados, 8 parciais e 3 pendentes; a versão anterior declarava 32
 concluídos e 2 pendentes, e 8 dos 31 “concluídos” não atendiam integralmente ao
 critério de aceite. Os itens que faltavam foram fechados por F2, F7, F9, F10 e
-F6 (B16 fechado junto com a verificação da fonte vendorizada).
+F6 (B16 fechado junto com a verificação da fonte vendorizada). O F11 fechou o
+último ponto que a auditoria deixou aberto na prática: *“rate limit e
+monitoramento não implementados”* (F4).
 
 | Item | Status | Evidência / lacuna |
 |---|---|---|
@@ -1238,12 +1335,12 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | Filtro 2026 | 861 registros; 10 sem `monthlyReference` |
 | Timeouts | `anon=3s`; `authenticated=8s`; `authenticator=8s/8s` (B14) |
 
-### Pendências herdadas (B14, B16)
+### Pendências herdadas (B14, B16) — fechadas
 
-| Item | Evidência | Correção sugerida | Critério de aceite |
+| Item | Evidência | Correção aplicada | Critério de aceite |
 |---|---|---|---|
-| **B14** | `anon=3s`, `authenticated=8s`, `authenticator=8s/8s`; o `anon` é o papel usado pelo dashboard. | Aumentar `statement_timeout` do `anon` (ex.: 30 s) ou mover a escrita para Edge Function com timeout próprio (DA5). | Importação do dataset real sem timeout. |
-| **B16** | `Plus Jakarta Sans` está com `"version": "unknown"` no manifesto. | Identificar a versão real do CSS do Google Fonts e fixar origem/hash; ou registrar explicitamente que a versão não é rastreável. | Manifesto sem `unknown` ou exceção documentada. |
+| **B14** | `anon=3s`, `authenticated=8s`, `authenticator=8s/8s`; o `anon` é o papel usado pelo dashboard. | **Não foi necessário ampliar**: o F6 limite o payload a 6 MB, o que mantém a escrita em ~0,55 s (5× de folga dentro dos 3 s). O F11 adicionou teto de payload e cooldown no banco. | ✅ Importação do dataset real sem timeout (medido: 0,17 s a 1×, 0,43 s a 2×). |
+| **B16** | `Plus Jakarta Sans` estava com `"version": "unknown"` no manifesto. | Os quatro `woff2` vendorizados foram conferidos byte a byte (sha256) com `fonts.gstatic.com/s/plusjakartasans/v12/` → versão **v12** registrada, com origem no `css2` e teste que recusa `unknown`. | ✅ Manifesto sem `unknown`. |
 
 ### Decisões da auditoria original (DA1–DA5)
 
@@ -1255,7 +1352,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | DA2 | Onde exibir o resumo do dataset (A2) | (a) card permanente; (b) barra de filtros; (c) cabeçalho; (d) card de status transitório | ✅ (d) aplicada; o cabeçalho persistente ficou incompleto (ver F9) |
 | DA3 | Compilar o Tailwind (B10) | (a) sim, CSS estático; (b) manter Play CDN | ✅ (a) aplicada no F7 |
 | DA4 | Recorte de payload (M1) | (a) só `_search`; (b) também campos vazios; (c) Storage + Edge Function | ✅ (b) aplicada; (c) evolução futura |
-| DA5 | Timeout do `anon` (B14) | (a) 30 s; (b) Edge Function | ⏸️ aberta |
+| DA5 | Timeout do `anon` (B14) | (a) 30 s; (b) Edge Function | ✅ fechada pelo F6/F11: com o teto de 6 MB a escrita cabe nos 3 s; não há necessidade de ampliar o timeout global |
 
 ---
 
@@ -1293,10 +1390,11 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | F7 | Tailwind compilado + CSP endurecida | screenshots + console limpo |
 | F6 | plano de escala e teste de carga | métricas 2×/5×/10× — **feito** (opção A com limite de 6 MB) |
 | F10 | limites absolutos + testes de sink/Worker/fingerprint | suíte verde nos dois SOs — **feito** (131/131, commit `3b0078a`) |
+| F11 | teto de payload, cooldown e janela do histórico | guardas no banco + transação revertida — **feito** (migration aplicada) |
 
 ---
 
-## 10. Decisões pendentes
+## 10. Decisões de arquitetura
 
 | ID | Decisão | Opções | Estado |
 |---|---|---|---|
@@ -1305,6 +1403,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | D3 | Tailwind (**F7**) | A: compilar agora · B: manter runtime | ✅ A (CSS estático) |
 | D4 | `.agents/` | A: versionar · B: ignorar | ✅ B (ignorado no `.gitignore`) |
 | D5 | Restrição “sem build” | A: manter (CSS gerado versionado) · B: permitir build no deploy | ✅ A (geração manual versionada) |
+| D6 | Proteção da escrita pública (**F11**) | A: guardas no banco (teto + cooldown + janela) · B: autenticação · C: Edge Function com allowlist | ✅ A (D1 = A mantido; as guardas cortam o abuso sem fechar a leitura) |
 
 ---
 
@@ -1318,6 +1417,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | F4 autenticação impacta o uso público | Decidir D1 antes; manter leitura pública se necessário |
 | F6 migração de dados | Backup, janela de manutenção, rollback documentado |
 | F7 regressão visual | Screenshot antes/depois; varrer `index.html` **e** `assets/js` |
+| F11 muda o caminho de escrita | Guardas testadas em transação revertida; snapshot de produção conferido por md5 antes e depois; cooldown documentado no README |
 | `.gitattributes` afeta checkouts existentes | Avisar o time; `git checkout-index -a -f` após commit |
 
 ---
@@ -1343,6 +1443,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Fase 3 | F8 | `.gitignore`, CI Linux/Windows e fonte única de valor vazio | subagente F8 | commit `17b7c15`; 118/118; D4 = ignorar `.agents/` |
 | 21/10/2026 | Fase 3 | F10 | T3 (orçamento absoluto), T4 (teste por sink), M5 (fallback do Worker) e B6 (campo novo) | subagentes F10 | commit `3b0078a`; 131/131; 13 testes novos; 4 mutações detectadas pelos testes |
 | 21/10/2026 | Fase 3 | F6 | opção A com limite de 6 MB + medição 1×/2×/5×/10× (cliente e banco) | orquestrador | commit `bc27e6f`; 137/137; `tools/loadtest.mjs` e `tools/loadtest.sql`; snapshot de produção restaurado via `excel_imports_rollback` (md5 conferido); B16 fechado (fonte v12) |
+| 21/10/2026 | Fase 3 | F11 | teto de payload (6 MB), cooldown de 30 s e janela de 5 versões no histórico | orquestrador | migration `20261021150000_protect_public_write.sql` aplicada (`20261021175531`); 3 guardas verificadas em transação revertida; snapshot de produção intacto (md5 `0a7bb28d…`, 1.946 registros) |
 | | | | | | |
 | | | | | | |
 
@@ -1454,7 +1555,7 @@ from public.excel_imports;
 
 ## Apêndice B — Escopo e limitações
 
-**Foi feito**
+**Foi feito** (o escopo original da auditoria, em 21/10/2026)
 
 - Leitura de `index.html`, `styles.css`, todos os módulos de `assets/js/`, README,
   `package.json`, `tools/serve.mjs` e da versão anterior deste documento.
@@ -1466,12 +1567,24 @@ from public.excel_imports;
 - Auditoria read-only do Supabase de produção: privilégios, ACL de funções,
   `search_path`, índices, constraints, triggers, contagem e timestamps.
 
-**Não foi feito**
+**Feito depois, na execução dos achados**
 
-- Teste de carga real.
-- Inspeção visual no navegador.
-- Teste de acessibilidade com leitor de tela.
-- Análise de segurança ofensiva.
+- **Teste de carga real** (F6): `tools/loadtest.mjs` (cliente) e
+  `tools/loadtest.sql` (banco, sempre revertido), com métricas de 1×/2×/5×/10×.
+- **Inspeção visual no navegador** (F7, F9): capturas antes/depois idênticas byte
+  a byte, console limpo, validação do resumo persistente e do smoke de 861 de
+  1.944.
+- **Guardas da escrita pública** (F11): teto de payload, cooldown e janela do
+  histórico, validados em transação revertida contra o banco de produção.
+
+**Continua não feito**
+
+- Teste de acessibilidade com **leitor de tela** (a acessibilidade é garantida
+  por asserts estruturais nos testes, não por um leitor real).
+- **Análise de segurança ofensiva** (a escrita segue pública por decisão D1 = A;
+  o F11 limita o estrago, mas não fecha o risco de *tampering* de valores).
+- **Monitoramento externo**: as recusas ficam no log do Postgres; não há
+  alerta, métrica ou painel próprio.
 
 ---
 
@@ -1510,3 +1623,4 @@ from public.excel_imports;
 | F8 | raiz, `.github/`, `.gitignore`, `.gitattributes`, `ANALISE.md` |
 | F9 | `assets/js/app.js`, `index.html`, `tests/banner.test.mjs`, `tests/search.test.mjs` |
 | F10 | `tests/payload.test.mjs`, `tests/xss.test.mjs`, `tests/import-worker-fallback.test.mjs` |
+| F11 | `supabase/migrations/20261021150000_protect_public_write.sql`, `assets/js/persistence.js`, `assets/js/import.js`, `tests/protection.test.mjs` |

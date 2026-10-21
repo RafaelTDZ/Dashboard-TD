@@ -4,7 +4,7 @@ Dashboard estático para visualização e importação de dados de processos de 
 
 - **Produção**: https://tdz-db.vercel.app (deploy automático pela Vercel a partir deste repositório)
 - **Local**: `node tools/serve.mjs 8765` → `http://127.0.0.1:8765/`
-- **Testes**: `node --test` (137 testes; também no CI, em Linux e Windows)
+- **Testes**: `node --test` (148 testes; também no CI, em Linux e Windows)
 - **Documento de análise**: [`ANALISE.md`](ANALISE.md) — o que foi corrigido, as medições e as decisões de arquitetura
 
 ## Executar localmente
@@ -106,7 +106,21 @@ commit;
 
 Confirme o `history_id` antes de executar: no procedimento manual, se ele não existir, o `INSERT ... SELECT` não restaura nenhuma linha e a tabela fica vazia (a função `excel_imports_rollback` recusa o id inexistente com `HISTORY_NOT_FOUND`).
 
-Se o dataset virar sensível ou o risco de tampering deixar de ser aceitável, migrar para a opção B (Supabase Auth + RLS para `authenticated`) ou C (Edge Function com service role e allowlist). Rate limit e monitoramento não estão implementados.
+Se o dataset virar sensível ou o risco de tampering deixar de ser aceitável, migrar para a opção B (Supabase Auth + RLS para `authenticated`) ou C (Edge Function com service role e allowlist).
+
+### Guardas da escrita pública (F11)
+
+Como a escrita é pública, o próprio banco limita o estrago de um abuso:
+
+| Guarda | Onde | Efeito |
+|---|---|---|
+| **Teto de payload** | trigger `excel_imports_enforce_single_latest` | Recusa snapshots acima de **6 MB** (`SNAPSHOT_TOO_LARGE`) — o mesmo limite do cliente, aqui como rede de segurança para quem chamar a API direto. |
+| **Cooldown de 30 s** | idem | Recusa uma segunda escrita enquanto o snapshot vigente tiver menos de 30 s (`SNAPSHOT_COOLDOWN: aguarde N s`). O aviso na tela diz quanto falta. |
+| **Janela de 5 versões** | trigger `excel_imports_archive_history` | O histórico guarda as **5 últimas** versões, em vez de crescer a cada escrita. Continua append-only para o cliente. |
+
+As recusas ficam registradas no **log do Postgres** (Supabase → Logs Explorer) com `raise warning`. Não existe tabela de auditoria porque a recusa aborta a transação — o que sobrevive é o histórico das escritas **aceitas**.
+
+O cooldown é um parâmetro operacional: uma pessoa não importa o mesmo arquivo duas vezes em menos de 30 s. Se o uso real exigir outra janela, o número está em um único lugar — o `interval '30 seconds'` da migration `20261021150000_protect_public_write.sql` — e deve ser alterado junto com esta documentação.
 
 ## Limite de escala do snapshot (F6)
 
@@ -119,7 +133,7 @@ O banco guarda o dataset inteiro em **uma** linha JSONB e cada importação reen
 | 5× | 9.744 | 12,5 MB | 1,02 s | 9,7 s |
 | 10× | 19.444 | 25,1 MB | 2,22 s | 19,4 s |
 
-O banco aguenta (o `statement_timeout` do papel `anon` é de 3 s); o **transporte** não. Por isso a importação recusa, **antes de qualquer escrita**, um arquivo cujo payload passe de **6 MB** (`DashboardImport.MAX_SNAPSHOT_BYTES`): nada muda na tela, nada é enviado ao Supabase e o usuário recebe o modal "Arquivo grande demais" com a orientação de importar a planilha em partes menores. O limite é ~2,5× o dataset atual (≈ 4.800 registros).
+O banco aguenta (o `statement_timeout` do papel `anon` é de 3 s); o **transporte** não. Por isso a importação recusa, **antes de qualquer escrita**, um arquivo cujo payload passe de **6 MB** (`DashboardImport.MAX_SNAPSHOT_BYTES`): nada muda na tela, nada é enviado ao Supabase e o usuário recebe o modal "Arquivo grande demais" com a orientação de importar a planilha em partes menores. O limite é ~2,5× o dataset atual (≈ 4.800 registros). O mesmo teto é aplicado no banco (ver "Guardas da escrita pública").
 
 Medições reproduzíveis:
 
@@ -159,7 +173,7 @@ node --test
 
 A mesma suíte roda em Linux e Windows no GitHub Actions (`.github/workflows/test.yml`).
 
-Os testes cobrem regras de status, datas, números e moedas (incluindo células Excel formatadas em CNY), importação XLSX e aba `Comments`, validação e normalização de snapshots e filtros, comparação por `operacao` (superset, processos removidos, atualizações, chaves duplicadas e campo novo do parser), bloqueio de arquivo incompleto, recusa do trigger sem contaminar o cache local, persistência (envio apenas na importação, cache local das interações, restauração "mais recente vence" e respostas do Supabase sem corpo), histórico append-only e rollback, orçamento absoluto de bytes do payload persistido, escape de HTML em cada sink de tela (tabela, banner, selects, toast e modal), fallback do Worker de importação (parse único, adiado e só depois do aviso na tela), limite de escala da importação (payload acima de 6 MB é recusado antes de qualquer escrita) e reprodução do teste de carga, sintaxe dos scripts, referências locais e acessibilidade estrutural.
+Os testes cobrem regras de status, datas, números e moedas (incluindo células Excel formatadas em CNY), importação XLSX e aba `Comments`, validação e normalização de snapshots e filtros, comparação por `operacao` (superset, processos removidos, atualizações, chaves duplicadas e campo novo do parser), bloqueio de arquivo incompleto, recusa do trigger sem contaminar o cache local, persistência (envio apenas na importação, cache local das interações, restauração "mais recente vence" e respostas do Supabase sem corpo), histórico append-only e rollback, orçamento absoluto de bytes do payload persistido, escape de HTML em cada sink de tela (tabela, banner, selects, toast e modal), fallback do Worker de importação (parse único, adiado e só depois do aviso na tela), limite de escala da importação (payload acima de 6 MB é recusado antes de qualquer escrita) e reprodução do teste de carga, guardas da escrita pública (teto de payload, cooldown de 30 s e janela do histórico), sintaxe dos scripts, referências locais e acessibilidade estrutural.
 
 Também é possível verificar individualmente os scripts:
 
@@ -189,8 +203,8 @@ Get-ChildItem assets/js -Filter *.js | ForEach-Object { node --check $_.FullName
 - `assets/css/` — `styles.css` (tema e componentes) e `tailwind.css` (Tailwind compilado, versionado).
 - `tools/serve.mjs` — servidor estático local.
 - `tools/loadtest.mjs` / `tools/loadtest.sql` — teste de carga (cliente e banco) do limite de escala.
-- `supabase/migrations/` — SQL das migrations (snapshot único, endurecimento, histórico append-only e rollback), incluindo `20261021120000_excel_imports_history.sql`.
-- `tests/` — suíte `node --test` (14 arquivos, 137 testes).
+- `supabase/migrations/` — SQL das migrations (snapshot único, endurecimento, histórico append-only e rollback, proteção da escrita pública), incluindo `20261021120000_excel_imports_history.sql` e `20261021150000_protect_public_write.sql`.
+- `tests/` — suíte `node --test` (15 arquivos, 148 testes).
 - `.github/workflows/test.yml` — CI da suíte em Linux e Windows.
 - `.gitattributes` — normalização de fim de linha (LF) e regras de diff.
 - `.gitignore` — dependências locais, metadados de deploy e ferramentas de agentes.

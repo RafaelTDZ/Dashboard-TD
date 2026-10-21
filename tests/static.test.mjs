@@ -344,7 +344,7 @@ test('migrations espelham o histórico remoto e mantêm um único snapshot', () 
     .map((name) => name.match(/^(\d{14})_/))
     .filter(Boolean)
     .map((match) => match[1]);
-  assert.deepEqual(versions, ['20261009142126', '20261019141213', '20261020120000', '20261021120000']);
+  assert.deepEqual(versions, ['20261009142126', '20261019141213', '20261020120000', '20261021120000', '20261021150000']);
 });
 
 test('migração de endurecimento fecha o bypass de privilégios e o DELETE sem WHERE', () => {

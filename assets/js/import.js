@@ -323,8 +323,43 @@
       });
     }
 
+    // Recusas do banco com mensagem específica (F11). O cooldown e o teto de
+    // payload não são "arquivo inválido": são limites de escrita, e a pessoa
+    // precisa saber o que fazer (aguardar ou dividir o arquivo).
+    function handleRateLimitedSnapshot(message) {
+      var waitMatch = message.match(/SNAPSHOT_COOLDOWN[\s\S]*?aguarde\s+(\d+)/i);
+      if (waitMatch) {
+        var wait = waitMatch[1];
+        var html = '<p class="mb-3 text-slate-300">O snapshot vigente foi gravado há menos de 30 s. ' +
+          'Aguarde <strong class="text-amber-300">' + global.UI.escapeHtml(wait) + ' s</strong> e importe de novo.</p>' +
+          '<p class="mb-3 text-slate-400">Nada foi alterado: o snapshot anterior foi mantido. ' +
+          'O limite de uma gravação a cada 30 s protege o banco de escritas repetidas.</p>';
+        global.UI.openModal({ title: 'Importação adiada', html: html });
+        global.UI.toast('O arquivo não foi salvo agora: o snapshot anterior foi gravado há pouco. Tente de novo em ' +
+          global.UI.escapeHtml(wait) + ' s.', 'warning', 'Importação adiada');
+        return true;
+      }
+      var sizeMatch = message.match(/SNAPSHOT_TOO_LARGE:\s*([0-9]+)/i);
+      if (sizeMatch) {
+        var sizeMb = Math.round(Number(sizeMatch[1]) / (1024 * 1024));
+        var html = '<p class="mb-3 text-slate-300">O arquivo gera <strong class="text-amber-300">' +
+          global.UI.formatNumber(sizeMb) + ' MB</strong> de dados e o banco aceita no máximo ' +
+          '<strong class="text-amber-300">' + global.UI.formatNumber(Math.round(MAX_SNAPSHOT_BYTES / (1024 * 1024))) + ' MB</strong>.</p>' +
+          '<p class="mb-3 text-slate-400">Nada foi alterado: o snapshot anterior foi mantido. ' +
+          'Importe a planilha em partes menores (por exemplo, por ano).</p>';
+        global.UI.openModal({ title: 'Arquivo grande demais', html: html });
+        global.UI.toast('O arquivo não foi salvo: o banco aceita no máximo ' +
+          global.UI.formatNumber(Math.round(MAX_SNAPSHOT_BYTES / (1024 * 1024))) + ' MB por snapshot.', 'error', 'Arquivo grande demais');
+        return true;
+      }
+      return false;
+    }
+
     function handleRejectedSnapshot(error, previousSnapshot) {
       var message = String(error && error.message || '');
+      if (handleRateLimitedSnapshot(message)) {
+        return restorePreviousSnapshot(previousSnapshot);
+      }
       var missingMatch = message.match(/SNAPSHOT_MISSING_RECORDS:\s*([0-9.,]+)/);
       var missingCount = missingMatch ? missingMatch[1] : '';
       var details = typeof error.details === 'string' ? error.details.trim() : '';

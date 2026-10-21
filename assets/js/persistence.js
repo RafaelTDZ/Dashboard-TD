@@ -111,8 +111,13 @@
       });
     }
 
+    // Recusas do banco (F11): chaves ausentes/duplicadas, superset violado,
+    // payload acima do teto de 6 MB e cooldown entre duas escritas. Todas
+    // significam "o snapshot novo NÃO foi gravado" — o cache local não pode
+    // ser gravado, senão o que o banco recusou venceria o banco no próximo
+    // carregamento.
     function isSnapshotRejected(error) {
-      return !!error && /SNAPSHOT_(MISSING_RECORDS|INVALID_KEYS|DUPLICATE_KEYS|INVALID)/.test(String(error.message || ''));
+      return !!error && /SNAPSHOT_(MISSING_RECORDS|INVALID_KEYS|DUPLICATE_KEYS|INVALID|TOO_LARGE|COOLDOWN)/.test(String(error.message || ''));
     }
 
     // Agendamento da persistência local (cache IndexedDB). O intervalo de
