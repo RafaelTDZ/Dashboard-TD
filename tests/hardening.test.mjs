@@ -12,6 +12,10 @@ import test from 'node:test';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const html = readFileSync(join(root, 'index.html'), 'utf8');
 const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+const normalizeSource = readFileSync(join(root, 'assets', 'js', 'normalize.js'), 'utf8');
+const filtersSource = readFileSync(join(root, 'assets', 'js', 'filters.js'), 'utf8');
+const viewSource = readFileSync(join(root, 'assets', 'js', 'view.js'), 'utf8');
+const snapshotSource = readFileSync(join(root, 'assets', 'js', 'snapshot.js'), 'utf8');
 const table = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
 const persistence = readFileSync(join(root, 'assets', 'js', 'persistence.js'), 'utf8');
@@ -65,7 +69,7 @@ test('o card de status nasce escondido e é revelado pelo app nos dois modos', (
   assert.match(init[0], /onLocal: function \(cachedSnapshot\)/, 'o cache local precisa ser apresentado antes do remoto');
   assert.match(init[0], /presentSnapshot\(cachedSnapshot\)/, 'o primeiro paint vem do cache');
   assert.match(init[0], /presentSnapshot\(snapshot\)/, 'o remoto reconcilia o que já está na tela');
-  const present = bodyOf(app, 'function presentSnapshot\\(snapshot, options\\)');
+  const present = bodyOf(snapshotSource, 'function presentSnapshot\\(snapshot, options\\)');
   assert.match(present, /showStatusBanner\(!!snapshot\)/, 'sem dataset o card fica; com dataset ele expira');
 });
 
@@ -140,8 +144,8 @@ test('menu de mês tem papel e controle, e o seletor de ano tem um rótulo só',
 // ---------------------------------------------------------------------------
 
 test('snapshot persistido usa a cópia enxuta dos registros', () => {
-  assert.match(app, /function toPersistedRecord\(record\)/);
-  assert.match(app, /if \(key === '_search'\) return;/, 'o índice derivado não pode ser persistido');
+  assert.match(normalizeSource, /function toPersistedRecord\(record\)/);
+  assert.match(normalizeSource, /if \(key === '_search'\) return;/, 'o índice derivado não pode ser persistido');
   assert.match(persistence, /records: state\.dataset\.map\(toPersistedRecord\)/);
   // O mesmo recorte vale para o cache local (persistLocal usa buildSnapshot).
   assert.match(persistence, /function persistLocal\(\)\s*\{[\s\S]*?var snapshot = buildSnapshot\(\);/);
@@ -208,8 +212,9 @@ test('código morto de LATEST, getAnalistaMode e schedulePersist(remote) foi rem
   assert.doesNotMatch(chartsCode, /LATEST/);
   assert.doesNotMatch(chartsCode, /getAnalistaMode/);
 
-  // app.js não passa mais parâmetro para schedulePersist.
-  const appCode = stripJsComments(app);
+  // app.js (com os módulos filters.js e view.js, para onde as chamadas
+  // migraram) não passa mais parâmetro para schedulePersist.
+  const appCode = stripJsComments(app + '\n' + filtersSource + '\n' + viewSource);
   const calls = [...appCode.matchAll(/schedulePersist\(([^)]*)\)/g)].map((match) => match[1].trim());
   assert.ok(calls.length > 0, 'schedulePersist não é chamado em lugar nenhum');
   for (const argument of calls) {

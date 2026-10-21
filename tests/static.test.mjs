@@ -9,6 +9,10 @@ import test from 'node:test';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const htmlPath = join(root, 'index.html');
 const html = readFileSync(htmlPath, 'utf8');
+const normalizeSource = readFileSync(join(root, 'assets', 'js', 'normalize.js'), 'utf8');
+const filtersSource = readFileSync(join(root, 'assets', 'js', 'filters.js'), 'utf8');
+const viewSource = readFileSync(join(root, 'assets', 'js', 'view.js'), 'utf8');
+const snapshotSource = readFileSync(join(root, 'assets', 'js', 'snapshot.js'), 'utf8');
 const table = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
 const importSource = readFileSync(join(root, 'assets', 'js', 'import.js'), 'utf8');
@@ -67,7 +71,6 @@ test('Worker e carregamento sob demanda apontam para bibliotecas locais', () => 
 
 test('importador preserva campos auxiliares e observações da planilha', () => {
   const etl = readFileSync(join(root, 'assets', 'js', 'etl.js'), 'utf8');
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   assert.match(etl, /parseCommentsSheet/);
   assert.match(etl, /estimativaEmb/);
   assert.match(etl, /modalidade/);
@@ -78,10 +81,12 @@ test('importador preserva campos auxiliares e observações da planilha', () => 
   assert.match(etl, /valorMoeda/);
   assert.match(etl, /extractOperationAcronym/);
   assert.match(etl, /raw: false/);
-  assert.match(app, /commentCount/);
+  // A normalização dos registros vive em normalize.js; o commentCount do
+  // snapshot restaurado é montado em snapshot.js.
+  assert.match(snapshotSource, /commentCount/);
   assert.match(table, /Comentários;Linha Excel/);
   assert.match(table, /Valor informado;Moeda;Valor USD/);
-  assert.match(app, /valorUSD/);
+  assert.match(normalizeSource, /valorUSD/);
   assert.match(readFileSync(join(root, 'assets', 'js', 'ui.js'), 'utf8'), /formatCurrencyFull/);
 });
 
@@ -102,9 +107,9 @@ test('configuração inline e estrutura de acessibilidade permanecem válidas', 
   assert.match(charts, /options\.isDemo === false/);
   const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   assert.match(app, /isDemo: state\.isDemo/);
-  assert.match(app, /'monthly-year': 'ano'/);
-  assert.match(app, /filters\.ano/);
-  assert.match(app, /getMonthlyReferenceYear/);
+  assert.match(filtersSource, /'monthly-year': 'ano'/);
+  assert.match(filtersSource, /filters\.ano/);
+  assert.match(filtersSource, /getMonthlyReferenceYear/);
   assert.match(charts, /monthlyYear/);
   assert.match(html, /id="monthly-year"/);
   for (const chart of ['analistas', 'mensal', 'origem', 'destino', 'incoterm', 'agentes', 'operacao-siglas']) {
@@ -115,17 +120,16 @@ test('configuração inline e estrutura de acessibilidade permanecem válidas', 
 });
 
 test('filtro de ano usa o ano corrente como padrão e não oculta registros sem ETA/ETS', () => {
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   const html = readFileSync(join(root, 'index.html'), 'utf8');
   const state = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
-  assert.match(app, /selectedYear != null && getMonthlyReferenceYear/);
-  assert.doesNotMatch(app, /if \(!state\.isDemo\) return false/);
+  assert.match(filtersSource, /selectedYear != null && getMonthlyReferenceYear/);
+  assert.doesNotMatch(filtersSource, /if \(!state\.isDemo\) return false/);
   // "Ano mais recente" (LATEST) foi removido: o padrão do filtro é o ano corrente.
-  assert.doesNotMatch(app, /'LATEST'/);
+  assert.doesNotMatch(filtersSource, /'LATEST'/);
   assert.doesNotMatch(html, /value="LATEST"/);
   assert.match(state, /ano: String\(new Date\(\)\.getFullYear\(\)\)/);
   // Se o ano corrente não existir nos dados, o filtro cai para "Todos os anos".
-  assert.match(app, /values\.indexOf\(String\(current\)\) > -1 \? String\(current\) : 'ALL'/);
+  assert.match(filtersSource, /values\.indexOf\(String\(current\)\) > -1 \? String\(current\) : 'ALL'/);
 });
 
 test('filtros dimensionam pelo conteúdo (sem largura fixa que corta texto)', () => {
@@ -145,26 +149,23 @@ test('tooltips exibem o nome da categoria uma única vez e só sob o cursor', ()
 });
 
 test('filtro de mês exibe o nome do mês em vez do número', () => {
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
-  assert.match(app, /global\.ETL\.monthName\(month\)/);
-  assert.doesNotMatch(app, /'Mês ' \+ month/);
+  assert.match(filtersSource, /ETL\.monthName\(month\)/);
+  assert.doesNotMatch(filtersSource, /'Mês ' \+ month/);
   const etl = readFileSync(join(root, 'assets', 'js', 'etl.js'), 'utf8');
   assert.match(etl, /'Novembro'/);
   assert.match(etl, /monthName: monthName/);
 });
 
 test('filtro e coluna de mês usam a mesma referência de data (ETA/ETS)', () => {
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
-  assert.match(app, /function getMonthlyReferenceMonth/);
-  assert.match(app, /state\.dataset\.map\(getMonthlyReferenceMonth\)/);
+  assert.match(normalizeSource, /function getMonthlyReferenceMonth/);
+  assert.match(filtersSource, /state\.dataset\.map\(getMonthlyReferenceMonth\)/);
   // Multi-seleção: o registro passa quando o mês dele está entre os marcados.
-  assert.match(app, /selectedMonths\.length && selectedMonths\.indexOf\(String\(getMonthlyReferenceMonth\(item\)\)\) === -1/);
-  assert.doesNotMatch(app, /String\(item\.month\) !== filters\.mes/);
+  assert.match(filtersSource, /selectedMonths\.length && selectedMonths\.indexOf\(String\(getMonthlyReferenceMonth\(item\)\)\) === -1/);
+  assert.doesNotMatch(filtersSource, /String\(item\.month\) !== filters\.mes/);
   assert.match(table, /monthName\(getMonthlyReferenceMonth\(item\)\)/);
 });
 
 test('filtro de mês permite marcar vários meses (multi-seleção)', () => {
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   const html = readFileSync(join(root, 'index.html'), 'utf8');
   const state = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
   const styles = readFileSync(join(root, 'assets', 'css', 'styles.css'), 'utf8');
@@ -172,12 +173,12 @@ test('filtro de mês permite marcar vários meses (multi-seleção)', () => {
   assert.match(html, /id="filter-mes-toggle"[^>]+aria-expanded="false"/);
   assert.match(html, /id="filter-mes-menu"[^>]*\shidden[\s>]/);
   assert.match(html, /id="filter-mes-list"/);
-  assert.match(app, /function toggleMonth/);
-  assert.match(app, /function toggleAllMonths/);
-  assert.match(app, /state\.filters\.mes = effective\.length === 0 \? 'NONE' : \(effective\.length === available\.length \? \[\] : effective\)/);
+  assert.match(filtersSource, /function toggleMonth/);
+  assert.match(filtersSource, /function toggleAllMonths/);
+  assert.match(filtersSource, /state\.filters\.mes = effective\.length === 0 \? 'NONE' : \(effective\.length === available\.length \? \[\] : effective\)/);
   // Nenhum mês marcado = dashboard vazio; o interruptor alterna tudo/nenhum.
-  assert.match(app, /getMonthFilterMode\(\) === 'none'/);
-  assert.match(app, /Selecionar meses/);
+  assert.match(filtersSource, /getMonthFilterMode\(\) === 'none'/);
+  assert.match(filtersSource, /Selecionar meses/);
   // O estado guarda a lista marcada; lista vazia = todos os meses.
   assert.match(state, /mes: \[\]/);
   assert.match(state, /Array\.isArray\(value\)/);
@@ -188,7 +189,7 @@ test('filtro de mês permite marcar vários meses (multi-seleção)', () => {
   // só evita estourar a janela em telas muito baixas).
   assert.match(styles, /max-height: min\(22\.5rem, calc\(100vh - 7rem\)\)/);
   // Sem espaço abaixo do botão, o menu abre para cima em vez de sair da tela.
-  assert.match(app, /ui-month-menu-up/);
+  assert.match(filtersSource, /ui-month-menu-up/);
   assert.match(styles, /\.ui-month-menu-up \{[\s\S]*?bottom: calc\(100% \+ 0\.35rem\)/);
   // As caixinhas do menu não herdam a largura/flex dos selects do painel.
   assert.match(styles, /\.ui-filter-panel input:not\(\[type="checkbox"\]\)/);
@@ -212,10 +213,9 @@ test('listas dos selects abrem no estilo do menu de mês (sem azul nativo)', () 
 });
 
 test('coluna Reg DI ordena por data cronológica e não por texto', () => {
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
-  assert.match(app, /case 'regDi':/);
-  assert.match(app, /regDiMatch\[3\]\) \* 10000 \+ Number\(regDiMatch\[2\]\) \* 100 \+ Number\(regDiMatch\[1\]\)/);
-  assert.doesNotMatch(app, /case 'regDi': return String\(item\.regDi/);
+  assert.match(filtersSource, /case 'regDi':/);
+  assert.match(filtersSource, /regDiMatch\[3\]\) \* 10000 \+ Number\(regDiMatch\[2\]\) \* 100 \+ Number\(regDiMatch\[1\]\)/);
+  assert.doesNotMatch(filtersSource, /case 'regDi': return String\(item\.regDi/);
 });
 
 test('média mensal usa janela móvel de 12 meses até o mês atual', () => {
@@ -254,13 +254,15 @@ test('seletor de estilo permite alternar entre o visual novo e o antigo', () => 
   assert.match(styles, /background: #18181b/);
   assert.doesNotMatch(styles, /#070b18/);
   assert.match(app, /uiStyle: 'classic'/);
-  assert.match(app, /function applyVisualStyle/);
-  assert.match(app, /global\.Charts\.setStyle/);
+  assert.match(viewSource, /function applyVisualStyle/);
+  assert.match(viewSource, /Charts\.setStyle\(nextStyle\)/);
   assert.match(charts, /COLOR_PALETTES/);
   assert.match(charts, /classic: \{\s+brand: '#3b82f6'/);
   assert.match(charts, /text: '#71717a'/);
   assert.match(charts, /global\.Charts = \{ init: init, render: render, setStyle: setStyle \}/);
-  assert.doesNotMatch(app, /localStorage|sessionStorage/);
+  // Nenhum dos módulos da camada de apresentação usa armazenamento próprio:
+  // a persistência continua centralizada em persistence.js.
+  assert.doesNotMatch(app + normalizeSource + filtersSource + viewSource + snapshotSource, /localStorage|sessionStorage/);
 });
 test('card de status é transitório com arquivo e persistente no estado vazio', () => {
   const styles = readFileSync(join(root, 'assets', 'css', 'styles.css'), 'utf8');

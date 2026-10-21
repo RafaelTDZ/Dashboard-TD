@@ -18,9 +18,17 @@ import test from 'node:test';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const realSetImmediate = globalThis.setImmediate;
 
-// table.js, banner.js, persistence.js e import.js são carregados antes de
-// app.js no index.html; aqui fazemos o mesmo para que o app encontre os
-// módulos ao ser avaliado.
+// normalize.js, filters.js, view.js, snapshot.js, table.js, banner.js,
+// persistence.js e import.js são carregados antes de app.js no index.html;
+// aqui fazemos o mesmo para que o app encontre os módulos ao ser avaliado.
+const normalizeSource = readFileSync(join(root, 'assets', 'js', 'normalize.js'), 'utf8');
+new Function(normalizeSource)();
+const filtersSource = readFileSync(join(root, 'assets', 'js', 'filters.js'), 'utf8');
+new Function(filtersSource)();
+const viewSource = readFileSync(join(root, 'assets', 'js', 'view.js'), 'utf8');
+new Function(viewSource)();
+const snapshotSource = readFileSync(join(root, 'assets', 'js', 'snapshot.js'), 'utf8');
+new Function(snapshotSource)();
 const tableSource = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 new Function(tableSource)();
 const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');

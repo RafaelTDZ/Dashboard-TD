@@ -36,6 +36,49 @@
   };
 
   const els = {};
+
+  // Normalização de registros e referência mensal vivem em normalize.js.
+  var normalize = global.DashboardNormalize.create({
+    ETL: global.ETL
+  });
+
+  // Filtros, busca e ordenação vivem em filters.js. O app injeta o estado, os
+  // elementos e os helpers e mantém wrappers curtos para os call sites.
+  var filters = global.DashboardFilters.create({
+    state: state,
+    els: els,
+    UI: global.UI,
+    ETL: global.ETL,
+    DashboardState: global.DashboardState,
+    normalizeSearchText: normalize.normalizeSearchText,
+    getMonthlyReferenceYear: normalize.getMonthlyReferenceYear,
+    getMonthlyReferenceMonth: normalize.getMonthlyReferenceMonth,
+    refresh: refresh,
+    schedulePersist: schedulePersist
+  });
+
+  // Estilo visual, modo analista e abas vivem em view.js.
+  var view = global.DashboardView.create({
+    state: state,
+    els: els,
+    Charts: global.Charts,
+    refresh: refresh,
+    schedulePersist: schedulePersist,
+    renderTable: renderTable
+  });
+
+  // Restauração de snapshots vive em snapshot.js.
+  var snapshotView = global.DashboardSnapshot.create({
+    state: state,
+    DEMO_FILE: DEMO_FILE,
+    normalize: normalize,
+    view: view,
+    filters: filters,
+    DashboardState: global.DashboardState,
+    refresh: refresh,
+    showStatusBanner: showStatusBanner
+  });
+
   // Tabela e exportação CSV vivem em table.js. O app injeta o estado e os
   // helpers e mantém wrappers curtos para os call sites existentes.
   var table = global.DashboardTable.create({
@@ -43,12 +86,9 @@
     els: els,
     UI: global.UI,
     ETL: global.ETL,
-    getSortedData: getSortedData,
-    getMonthlyReferenceMonth: getMonthlyReferenceMonth
+    getSortedData: filters.getSortedData,
+    getMonthlyReferenceMonth: normalize.getMonthlyReferenceMonth
   });
-
-  function renderTable() { table.renderTable(); }
-  function exportCsv() { table.exportCsv(); }
 
   // Card de status e KPIs vivem em banner.js. O app injeta o estado e os
   // helpers e mantém wrappers curtos para os call sites existentes.
@@ -57,22 +97,15 @@
     els: els,
     UI: global.UI,
     ETL: global.ETL,
-    getSelectedYear: getSelectedYear
+    getSelectedYear: filters.getSelectedYear
   });
-
-  function updateBanner() { banner.updateBanner(); }
-  function updateKPIs(data) { banner.updateKPIs(data); }
-  function showStatusBanner(transient) { banner.showStatusBanner(transient); }
-  function hideStatusBanner() { banner.hideStatusBanner(); }
-  function showTransientUpdateBanner() { banner.showTransientUpdateBanner(); }
-  function showStatusBannerError(message) { banner.showStatusBannerError(message); }
 
   // Persistência (Supabase + IndexedDB) vive em persistence.js. O app injeta o
   // estado, os helpers e os callbacks de UI e mantém wrappers curtos para os
   // call sites existentes.
   var persistence = global.DashboardPersistence.create({
     state: state,
-    toPersistedRecord: toPersistedRecord,
+    toPersistedRecord: normalize.toPersistedRecord,
     DashboardState: global.DashboardState,
     SupabaseStorage: global.SupabaseStorage,
     ETL: global.ETL,
@@ -81,22 +114,15 @@
     onLoadedAtChanged: function () { updateBanner(); }
   });
 
-  function schedulePersist() { persistence.schedulePersist(); }
-  function persistNow() { return persistence.persistNow(); }
-  function buildSnapshot() { return persistence.buildSnapshot(); }
-  function restoreState(options) { return persistence.restoreState(options); }
-  function beginSnapshotValidation(context) { persistence.beginSnapshotValidation(context); }
-  function endSnapshotValidation(context) { persistence.endSnapshotValidation(context); }
-
   // Importação de planilhas Excel vive em import.js. O app injeta o estado e
   // os helpers e mantém wrappers curtos para os call sites existentes.
   var importer = global.DashboardImport.create({
     state: state,
-    prepareRecord: prepareRecord,
-    canonicalizeDataset: canonicalizeDataset,
-    buildSearchIndex: buildSearchIndex,
-    populateFilterOptions: populateFilterOptions,
-    resetFilters: resetFilters,
+    prepareRecord: normalize.prepareRecord,
+    canonicalizeDataset: normalize.canonicalizeDataset,
+    buildSearchIndex: normalize.buildSearchIndex,
+    populateFilterOptions: filters.populateFilterOptions,
+    resetFilters: filters.resetFilters,
     refresh: refresh,
     showTransientUpdateBanner: showTransientUpdateBanner,
     buildSnapshot: buildSnapshot,
@@ -107,10 +133,41 @@
     persistNow: persistNow
   });
 
+  function renderTable() { table.renderTable(); }
+  function exportCsv() { table.exportCsv(); }
+
+  function updateBanner() { banner.updateBanner(); }
+  function updateKPIs(data) { banner.updateKPIs(data); }
+  function showStatusBanner(transient) { banner.showStatusBanner(transient); }
+  function hideStatusBanner() { banner.hideStatusBanner(); }
+  function showTransientUpdateBanner() { banner.showTransientUpdateBanner(); }
+  function showStatusBannerError(message) { banner.showStatusBannerError(message); }
+
+  function schedulePersist() { persistence.schedulePersist(); }
+  function persistNow() { return persistence.persistNow(); }
+  function buildSnapshot() { return persistence.buildSnapshot(); }
+  function restoreState(options) { return persistence.restoreState(options); }
+  function beginSnapshotValidation(context) { persistence.beginSnapshotValidation(context); }
+  function endSnapshotValidation(context) { persistence.endSnapshotValidation(context); }
+
   function handleFileUpload(event) { return importer.handleFileUpload(event); }
   function handleRejectedSnapshot(error, previousSnapshot) { return importer.handleRejectedSnapshot(error, previousSnapshot); }
 
-  var monthOptionInputs = [];
+  function presentSnapshot(snapshot, options) { return snapshotView.presentSnapshot(snapshot, options); }
+  function applyVisualStyle(style, refreshCharts) { view.applyVisualStyle(style, refreshCharts); }
+  function applyAnalistaModeUI() { view.applyAnalistaModeUI(); }
+  function setAnalistaMode(mode) { view.setAnalistaMode(mode); }
+  function switchTab(tabName) { view.switchTab(tabName); }
+
+  function setMonthMenuOpen(open) { filters.setMonthMenuOpen(open); }
+  function toggleAllMonths() { filters.toggleAllMonths(); }
+  function populateFilterOptions() { filters.populateFilterOptions(); }
+  function normalizeFilterState() { filters.normalizeFilterState(); }
+  function applyFilterStateToInputs() { filters.applyFilterStateToInputs(); }
+  function resetFilters(options) { filters.resetFilters(options); }
+  function getSelectedYear() { return filters.getSelectedYear(); }
+  function getVisibleData() { return filters.getVisibleData(); }
+  function getSortedData() { return filters.getSortedData(); }
 
   function cacheElements() {
     REQUIRED_ELEMENT_IDS.forEach(function (id) {
@@ -118,212 +175,6 @@
     });
     const missing = REQUIRED_ELEMENT_IDS.filter(function (id) { return !els[id]; });
     if (missing.length) throw new Error('Estrutura do dashboard incompleta. Elementos ausentes: ' + missing.join(', '));
-  }
-
-  // Normaliza texto para a busca: sem acentos e em minúsculas. Só o índice
-  // (_search) e as comparações usam essa forma — o texto exibido na tabela e
-  // exportado no CSV continua com os acentos.
-  function normalizeSearchText(value) {
-    return String(value == null ? '' : value)
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
-  }
-
-  // Valor "vazio" para efeito de persistência e de comparação de snapshots:
-  // null, '' e arrays vazios não mudam o resultado e apenas inflam o payload.
-  // A mesma regra vale em state.js (recordFingerprint) — as duas precisam
-  // descartar exatamente os mesmos campos.
-  function isEmptyPersistedValue(value) {
-    if (value === null || value === undefined || value === '') return true;
-    return Array.isArray(value) && !value.length;
-  }
-
-  // Cópia enxuta do registro para o que é persistido (Supabase e cache local):
-  // sem o índice derivado (_search), sem campos vazios e sem arrays vazios.
-  // Os dados em memória (state.dataset) continuam completos — a busca depende
-  // do _search, que é recalculado por prepareRecord() ao restaurar.
-  function toPersistedRecord(record) {
-    var copy = {};
-    Object.keys(record || {}).forEach(function (key) {
-      if (key === '_search') return;
-      var value = record[key];
-      if (isEmptyPersistedValue(value)) return;
-      copy[key] = value;
-    });
-    return copy;
-  }
-
-  // Monta o índice de busca do registro (normalizado, sem acentos). Fica em
-  // uma função própria porque o índice precisa ser recalculado depois da
-  // canonicalização dos campos (ver B1): canonicalizar depois de indexar
-  // deixaria a busca procurando valores antigos.
-  function buildSearchIndex(record) {
-    record._search = normalizeSearchText([
-      record.operacao, record.analista, record.mercadoria, record.situacao,
-      record.origem, record.destino, record.incoterm, record.regDi, record.despachante,
-      record.eta, record.numeroDi, record.protocoloDi, record.transportadora,
-      record.exportador, record.agente, record.container, record.modalidade, record.ric,
-      record.valorOriginal, record.valorMoeda,
-      record.comments.map(function (comment) { return [comment.reference, comment.text, comment.author, comment.date].join(' '); }).join(' ')
-    ].join(' '));
-    return record;
-  }
-
-  function prepareRecord(record) {
-    record.month = record.month == null || record.month === '' ? null : Number(record.month);
-    if (!Number.isFinite(record.month)) record.month = null;
-    record.valor = Number(record.valor) || 0;
-    record.valorMoeda = global.ETL && typeof global.ETL.normalizeCurrency === 'function'
-      ? global.ETL.normalizeCurrency(record.valorMoeda, 'USD')
-      : (record.valorMoeda || 'USD');
-    record.valorOriginal = record.valorOriginal || (record.valor ? String(record.valor) : '');
-    var storedValorUSD = record.valorUSD == null || record.valorUSD === '' ? null : Number(record.valorUSD);
-    record.valorUSD = Number.isFinite(storedValorUSD)
-      ? storedValorUSD
-      : (record.valorMoeda === 'USD' ? record.valor : null);
-    record.peso = Number(record.peso) || 0;
-    record.slaDias = Number.isFinite(Number(record.slaDias)) && record.slaDias !== null && record.slaDias !== '' ? Number(record.slaDias) : null;
-    record.analista = record.analista || 'N/A';
-    record.operacao = record.operacao || 'N/A';
-    record.operacaoSigla = global.ETL && typeof global.ETL.extractOperationAcronym === 'function'
-      ? global.ETL.extractOperationAcronym(record.operacao)
-      : (record.operacaoSigla || 'N/A');
-    record.situacao = record.situacao || 'Em Andamento';
-    record.mercadoria = record.mercadoria || 'N/A';
-    record.modal = record.modal || 'N/A';
-    record.modalCategory = record.modalCategory || global.ETL.classifyModal(record.modal);
-    record.origem = record.origem || 'N/A';
-    record.destino = record.destino || 'N/A';
-    record.incoterm = record.incoterm || 'N/A';
-    record.regDi = record.regDi || '';
-    record.despachante = record.despachante || 'N/A';
-    record.eta = record.eta || '';
-    var etaDate = record.eta && global.ETL && typeof global.ETL.parseExcelDate === 'function'
-      ? global.ETL.parseExcelDate(record.eta)
-      : null;
-    var etsDate = record.ets && global.ETL && typeof global.ETL.parseExcelDate === 'function'
-      ? global.ETL.parseExcelDate(record.ets)
-      : null;
-    record.etaMonth = record.etaMonth == null || record.etaMonth === '' ? null : Number(record.etaMonth);
-    if (record.etaMonth == null && etaDate) record.etaMonth = etaDate.getMonth() + 1;
-    if (!Number.isInteger(record.etaMonth) || record.etaMonth < 1 || record.etaMonth > 12) record.etaMonth = null;
-    record.etaYear = record.etaYear == null || record.etaYear === '' ? null : Number(record.etaYear);
-    if (record.etaYear == null && etaDate) record.etaYear = etaDate.getFullYear();
-    if (!Number.isInteger(record.etaYear) || record.etaYear < 1900 || record.etaYear > 2100) record.etaYear = null;
-    record.etsMonth = record.etsMonth == null || record.etsMonth === '' ? null : Number(record.etsMonth);
-    if (record.etsMonth == null && etsDate) record.etsMonth = etsDate.getMonth() + 1;
-    if (!Number.isInteger(record.etsMonth) || record.etsMonth < 1 || record.etsMonth > 12) record.etsMonth = null;
-    record.etsYear = record.etsYear == null || record.etsYear === '' ? null : Number(record.etsYear);
-    if (record.etsYear == null && etsDate) record.etsYear = etsDate.getFullYear();
-    if (!Number.isInteger(record.etsYear) || record.etsYear < 1900 || record.etsYear > 2100) record.etsYear = null;
-    var monthlyReference = record.monthlyReference && typeof record.monthlyReference === 'object'
-      ? record.monthlyReference
-      : null;
-    if (!monthlyReference || !['ETA', 'ETS'].includes(monthlyReference.source)) {
-      monthlyReference = etaDate
-        ? { month: etaDate.getMonth() + 1, year: etaDate.getFullYear(), source: 'ETA' }
-        : (etsDate ? { month: etsDate.getMonth() + 1, year: etsDate.getFullYear(), source: 'ETS' } : null);
-    }
-    if (monthlyReference) {
-      monthlyReference.month = Number(monthlyReference.month);
-      monthlyReference.year = Number(monthlyReference.year);
-      if (!Number.isInteger(monthlyReference.month) || monthlyReference.month < 1 || monthlyReference.month > 12 ||
-          !Number.isInteger(monthlyReference.year) || monthlyReference.year < 1900 || monthlyReference.year > 2100) {
-        monthlyReference = null;
-      }
-    }
-    record.monthlyReference = monthlyReference;
-    if (!Object.prototype.hasOwnProperty.call(record, 'faturada')) record.faturada = null;
-    if (!Object.prototype.hasOwnProperty.call(record, 'arquivado')) record.arquivado = null;
-    if (!Object.prototype.hasOwnProperty.call(record, 'estimativaEmb')) record.estimativaEmb = null;
-    if (!Object.prototype.hasOwnProperty.call(record, 'estimativaAtr')) record.estimativaAtr = null;
-    if (!Object.prototype.hasOwnProperty.call(record, 'atracado')) record.atracado = null;
-    record.modalidade = record.modalidade || '';
-    record.ric = record.ric || '';
-    record.ets = record.ets || '';
-    record.estEmb = record.estEmb || '';
-    record.estAtr = record.estAtr || '';
-    record.fech = record.fech || '';
-    record.numeroDi = record.numeroDi || '';
-    record.protocoloDi = record.protocoloDi || '';
-    record.transportadora = record.transportadora || '';
-    record.exportador = record.exportador || '';
-    record.agente = record.agente || '';
-    record.container = record.container || '';
-    record.comments = Array.isArray(record.comments) ? record.comments.filter(function (comment) {
-      return comment && typeof comment === 'object' && (comment.text || comment.author || comment.date || comment.reference);
-    }) : [];
-    record.sourceRowNumber = Number.isFinite(Number(record.sourceRowNumber)) ? Number(record.sourceRowNumber) : null;
-    buildSearchIndex(record);
-    return record;
-  }
-
-  function canonicalizeDataset(records) {
-    if (!Array.isArray(records)) return;
-    if (global.ETL && typeof global.ETL.canonicalizeField === 'function') {
-      ['agente', 'origem', 'destino', 'mercadoria', 'analista', 'despachante'].forEach(function (field) {
-        global.ETL.canonicalizeField(records, field);
-      });
-    } else if (global.ETL && typeof global.ETL.canonicalizeAgents === 'function') {
-      global.ETL.canonicalizeAgents(records);
-    }
-  }
-
-  function applySnapshotToState(snapshot) {
-    state.dataset = snapshot.records.map(prepareRecord);
-    canonicalizeDataset(state.dataset);
-    // A canonicalização altera os campos indexados: o _search é refeito depois
-    // dela para que a busca use sempre os valores finais (B1).
-    state.dataset.forEach(buildSearchIndex);
-    state.meta = {
-      name: snapshot.meta.name,
-      sheetName: snapshot.meta.sheetName,
-      headerRow: snapshot.meta.headerRow,
-      rowCount: snapshot.meta.rowCount,
-      ignoredRows: snapshot.meta.ignoredRows || 0,
-      commentCount: snapshot.meta.commentCount || 0,
-      parserVersion: snapshot.meta.parserVersion || 1,
-      loadedAt: new Date(snapshot.meta.loadedAt)
-    };
-    state.isDemo = false;
-    state.page = 1;
-    if (snapshot.filters) Object.assign(state.filters, snapshot.filters);
-    if (typeof snapshot.search === 'string') state.search = snapshot.search;
-    if (snapshot.analistaMode != null) {
-      state.analistaMode = global.DashboardState.normalizeAnalistaMode(snapshot.analistaMode);
-    }
-    if (snapshot.uiStyle != null) {
-      state.uiStyle = global.DashboardState.normalizeUiStyle(snapshot.uiStyle);
-      applyVisualStyle(state.uiStyle, false);
-    }
-    applyAnalistaModeUI();
-  }
-
-  function resetToDemoState() {
-    state.dataset = [];
-    state.meta = { name: DEMO_FILE, sheetName: '', headerRow: null, rowCount: 0, loadedAt: new Date() };
-    state.isDemo = true;
-    state.page = 1;
-  }
-
-  // Pinta um snapshot (ou o estado vazio) na interface inteira. É o único
-  // caminho de render da restauração: o cache local e o resultado final usam o
-  // mesmo bloco, sem duplicar populate/normalize/apply/refresh em cada ramo.
-  // `skipBanner` existe para o fluxo de importação, que já controla o card.
-  function presentSnapshot(snapshot, options) {
-    var settings = options || {};
-    if (snapshot) applySnapshotToState(snapshot);
-    else resetToDemoState();
-    populateFilterOptions();
-    normalizeFilterState();
-    applyFilterStateToInputs();
-    refresh();
-    if (settings.skipBanner !== true) {
-      // Com dataset o card mostra o que foi carregado e some sozinho; sem
-      // dataset ele fica visível com a orientação de como começar.
-      showStatusBanner(!!snapshot);
-    }
   }
 
   function init() {
@@ -365,7 +216,7 @@
       }
     }).catch(function (error) {
       console.error('Falha ao inicializar o dataset.', error);
-      resetToDemoState();
+      snapshotView.resetToDemoState();
       populateFilterOptions();
       normalizeFilterState();
       applyFilterStateToInputs();
@@ -405,16 +256,7 @@
       document.getElementById('tab-btn-' + tabs[next]).focus();
     });
 
-    var selectMap = {
-      'monthly-year': 'ano',
-      'filter-analista': 'analista',
-      'filter-situacao': 'situacao',
-      'filter-reg-di': 'regDi',
-      'filter-mercadoria': 'mercadoria',
-      'filter-modal': 'modal',
-      'filter-incoterm': 'incoterm',
-      'filter-despachante': 'despachante'
-    };
+    var selectMap = filters.selectFilterKeys;
     Object.keys(selectMap).forEach(function (id) {
       els[id].addEventListener('change', function () {
         state.filters[selectMap[id]] = els[id].value;
@@ -505,378 +347,6 @@
           global.UI.toast('Não foi possível copiar automaticamente. O código foi selecionado — pressione Ctrl+C.', 'warning', 'Cópia manual');
         });
       });
-    });
-  }
-
-  function applyVisualStyle(style, refreshCharts) {
-    var nextStyle = style === 'modern' ? 'modern' : 'classic';
-    state.uiStyle = nextStyle;
-    document.body.dataset.uiStyle = nextStyle;
-    ['modern', 'classic'].forEach(function (option) {
-      var button = els['style-option-' + option];
-      if (!button) return;
-      button.setAttribute('aria-pressed', option === nextStyle ? 'true' : 'false');
-    });
-    if (refreshCharts !== false && global.Charts && typeof global.Charts.setStyle === 'function') {
-      global.Charts.setStyle(nextStyle);
-      global.Charts.render(state.filtered, {
-        monthlyYear: state.filters.ano,
-        isDemo: state.isDemo,
-        uiStyle: nextStyle,
-        analistaMode: state.analistaMode
-      });
-    }
-  }
-
-  function applyAnalistaModeUI() {
-    var isCount = state.analistaMode === 'qtd';
-    var title = document.getElementById('analistas-title');
-    if (title) title.textContent = isCount ? 'Quantidade de Processos por Analista' : 'Valor USD Movimentado por Analista';
-    var unit = document.getElementById('analistas-unit');
-    if (unit) unit.textContent = isCount ? 'Nº de processos' : 'Valores em USD';
-    var canvas = document.getElementById('chart-analistas');
-    if (canvas) {
-      canvas.setAttribute('aria-label', isCount
-        ? 'Gráfico de barras da quantidade de processos por analista'
-        : 'Gráfico de barras do valor movimentado por analista');
-    }
-    ['valor', 'qtd'].forEach(function (mode) {
-      var button = document.getElementById('analistas-mode-' + mode);
-      if (!button) return;
-      var active = (mode === 'qtd') === isCount;
-      button.setAttribute('aria-pressed', active ? 'true' : 'false');
-      button.classList.toggle('bg-brand-600', active);
-      button.classList.toggle('text-white', active);
-      button.classList.toggle('shadow', active);
-      button.classList.toggle('text-slate-400', !active);
-      button.classList.toggle('hover:text-white', !active);
-    });
-  }
-
-  function setAnalistaMode(mode) {
-    var next = mode === 'qtd' ? 'qtd' : 'valor';
-    if (state.analistaMode === next) return;
-    state.analistaMode = next;
-    applyAnalistaModeUI();
-    refresh();
-    schedulePersist();
-  }
-
-  function switchTab(tabName) {
-    ['dashboard', 'data', 'integration'].forEach(function (tab) {
-      var panel = document.getElementById('tab-' + tab);
-      var button = document.getElementById('tab-btn-' + tab);
-      var active = tab === tabName;
-      panel.hidden = !active;
-      panel.setAttribute('aria-hidden', active ? 'false' : 'true');
-      panel.classList.toggle('hidden', !active);
-      button.setAttribute('aria-selected', active ? 'true' : 'false');
-      button.setAttribute('tabindex', active ? '0' : '-1');
-      button.classList.toggle('bg-brand-600', active);
-      button.classList.toggle('text-white', active);
-      button.classList.toggle('shadow', active);
-      button.classList.toggle('text-slate-400', !active);
-      button.classList.toggle('hover:text-white', !active);
-    });
-    if (tabName === 'data') renderTable();
-  }
-
-  function fillSelect(select, values, allLabel, labelFn) {
-    if (!select) return;
-    var current = select.value;
-    var unique = Array.from(new Set(values.filter(function (value) {
-      return value != null && String(value).trim() !== '';
-    }))).sort(function (a, b) {
-      if (typeof a === 'number' && typeof b === 'number') return a - b;
-      return String(a).localeCompare(String(b), 'pt-BR');
-    });
-    var html = '<option value="ALL">' + global.UI.escapeHtml(allLabel) + '</option>';
-    unique.forEach(function (value) {
-      html += '<option value="' + global.UI.escapeHtml(value) + '">' +
-        global.UI.escapeHtml(labelFn ? labelFn(value) : value) + '</option>';
-    });
-    select.innerHTML = html;
-    select.value = unique.map(String).indexOf(String(current)) > -1 ? current : 'ALL';
-  }
-
-  function getAvailableMonths() {
-    return Array.from(new Set(state.dataset.map(getMonthlyReferenceMonth).filter(function (month) {
-      return month != null;
-    }))).sort(function (a, b) { return a - b; });
-  }
-
-  // Modo do filtro de mês: 'all' = sem filtro; 'none' = nenhum mês marcado
-  // (o dashboard fica vazio); 'some' = subconjunto de meses marcado.
-  function getMonthFilterMode() {
-    if (state.filters.mes === 'NONE') return 'none';
-    return getSelectedMonths().length ? 'some' : 'all';
-  }
-
-  function getSelectedMonths() {
-    var selected = state.filters.mes;
-    if (Array.isArray(selected)) {
-      return selected.map(String).filter(function (month) {
-        return /^(1[0-2]|[1-9])$/.test(month);
-      });
-    }
-    // Formatos antigos de snapshot: 'ALL' = todos; '7' = um único mês; 'NONE' = nenhum.
-    return typeof selected === 'string' && selected !== 'ALL' && selected !== 'NONE' ? [selected] : [];
-  }
-
-  function monthSummary(mode, selected) {
-    if (mode === 'none') return 'Selecionar meses';
-    if (mode === 'all') return 'Todos os Meses';
-    if (selected.length > 3) return selected.length + ' meses selecionados';
-    return selected.map(function (month) { return global.ETL.monthName(Number(month)); }).join(', ');
-  }
-
-  function updateMonthFilterUi() {
-    var mode = getMonthFilterMode();
-    var selected = getSelectedMonths();
-    els['filter-mes-all'].checked = mode === 'all';
-    els['filter-mes-all'].indeterminate = mode === 'some';
-    els['filter-mes-toggle'].setAttribute('aria-expanded', els['filter-mes-menu'].hidden ? 'false' : 'true');
-    monthOptionInputs.forEach(function (entry) {
-      entry.input.checked = mode === 'all' || (mode === 'some' && selected.indexOf(entry.value) > -1);
-    });
-    els['filter-mes-label'].textContent = monthSummary(mode, selected);
-  }
-
-  function populateMonthOptions() {
-    var list = els['filter-mes-list'];
-    list.textContent = '';
-    monthOptionInputs = getAvailableMonths().map(function (value) {
-      var month = Number(value);
-      var option = document.createElement('label');
-      option.className = 'ui-month-option';
-      var input = document.createElement('input');
-      input.type = 'checkbox';
-      input.value = String(month);
-      input.className = 'ui-month-check';
-      input.addEventListener('change', function () { toggleMonth(String(month), input.checked); });
-      var text = document.createElement('span');
-      text.textContent = global.ETL.monthName(month);
-      option.appendChild(input);
-      option.appendChild(text);
-      list.appendChild(option);
-      return { value: String(month), input: input };
-    });
-    updateMonthFilterUi();
-  }
-
-  function setMonthMenuOpen(open) {
-    var menu = els['filter-mes-menu'];
-    var toggle = els['filter-mes-toggle'];
-    menu.hidden = !open;
-    if (open && typeof toggle.getBoundingClientRect === 'function' && menu.classList) {
-      // Sem espaço abaixo do botão, o menu abre para cima (cabe inteiro na tela).
-      menu.classList.remove('ui-month-menu-up');
-      var toggleRect = toggle.getBoundingClientRect();
-      var spaceBelow = global.innerHeight - toggleRect.bottom;
-      if (menu.offsetHeight + 16 > spaceBelow && toggleRect.top > spaceBelow) {
-        menu.classList.add('ui-month-menu-up');
-      }
-    }
-    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-  }
-
-  function toggleMonth(monthValue, checked) {
-    var available = getAvailableMonths().map(String);
-    var mode = getMonthFilterMode();
-    // Partimos do conjunto efetivo: em "todos" a lista inteira está marcada;
-    // em "nenhum" ela começa vazia.
-    var effective = mode === 'all' ? available.slice() : getSelectedMonths().slice();
-    var index = effective.indexOf(String(monthValue));
-    if (checked && index === -1) effective.push(String(monthValue));
-    if (!checked && index > -1) effective.splice(index, 1);
-    effective.sort(function (a, b) { return Number(a) - Number(b); });
-    // Marcar todos = sem filtro (lista vazia); desmarcar todos = 'NONE' (vazio).
-    state.filters.mes = effective.length === 0 ? 'NONE' : (effective.length === available.length ? [] : effective);
-    state.page = 1;
-    updateMonthFilterUi();
-    refresh();
-    schedulePersist();
-  }
-
-  // Interruptor geral do menu: acende todas as caixinhas e, de novo, apaga todas.
-  function toggleAllMonths() {
-    state.filters.mes = getMonthFilterMode() === 'all' ? 'NONE' : [];
-    state.page = 1;
-    updateMonthFilterUi();
-    refresh();
-    schedulePersist();
-  }
-
-  function populateFilterOptions() {
-    populateMonthOptions();
-    fillSelect(els['filter-analista'], state.dataset.map(function (item) { return item.analista; }), 'Todos os Analistas');
-    fillSelect(els['filter-mercadoria'], state.dataset.map(function (item) { return item.mercadoria; }), 'Todas as Mercadorias');
-    fillSelect(els['filter-incoterm'], state.dataset.map(function (item) { return item.incoterm; }), 'Todos Incoterms');
-    fillSelect(els['filter-despachante'], state.dataset.map(function (item) { return item.despachante; }), 'Todos os Despachantes');
-    populateMonthlyYearOptions();
-  }
-
-  function getMonthlyReferenceYear(item) {
-    var reference = item && item.monthlyReference;
-    var year = reference && (reference.source === 'ETA' || reference.source === 'ETS')
-      ? Number(reference.year)
-      : null;
-    return Number.isInteger(year) && year >= 1900 && year <= 2100 ? year : null;
-  }
-
-  function getMonthlyReferenceMonth(item) {
-    var reference = item && item.monthlyReference;
-    var month = reference && (reference.source === 'ETA' || reference.source === 'ETS')
-      ? Number(reference.month)
-      : null;
-    return Number.isInteger(month) && month >= 1 && month <= 12 ? month : null;
-  }
-
-  function getAvailableMonthlyYears() {
-    return Array.from(new Set(state.dataset.map(getMonthlyReferenceYear).filter(function (year) {
-      return year != null;
-    }))).sort(function (a, b) { return b - a; });
-  }
-
-  function populateMonthlyYearOptions() {
-    var years = getAvailableMonthlyYears();
-    var current = state.filters.ano || 'ALL';
-    var html = '<option value="ALL">Todos os anos</option>';
-    years.forEach(function (year) {
-      html += '<option value="' + year + '">' + year + '</option>';
-    });
-    els['monthly-year'].innerHTML = html;
-    var values = ['ALL'].concat(years.map(String));
-    state.filters.ano = values.indexOf(String(current)) > -1 ? String(current) : 'ALL';
-    els['monthly-year'].value = state.filters.ano;
-  }
-
-  function normalizeFilterState() {
-    var availableValues = {
-      mes: getAvailableMonths().map(String),
-      ano: Array.from(els['monthly-year'].options).map(function (option) { return option.value; }),
-      analista: Array.from(els['filter-analista'].options).map(function (option) { return option.value; }),
-      situacao: Array.from(els['filter-situacao'].options).map(function (option) { return option.value; }),
-      regDi: Array.from(els['filter-reg-di'].options).map(function (option) { return option.value; }),
-      mercadoria: Array.from(els['filter-mercadoria'].options).map(function (option) { return option.value; }),
-      modal: Array.from(els['filter-modal'].options).map(function (option) { return option.value; }),
-      incoterm: Array.from(els['filter-incoterm'].options).map(function (option) { return option.value; }),
-      despachante: Array.from(els['filter-despachante'].options).map(function (option) { return option.value; })
-    };
-    state.filters = global.DashboardState.normalizeFilters(state.filters, availableValues);
-  }
-
-  function applyFilterStateToInputs() {
-    normalizeFilterState();
-    els['filter-operacao'].value = state.filters.operacao;
-    els['monthly-year'].value = state.filters.ano;
-    updateMonthFilterUi();
-    els['filter-analista'].value = state.filters.analista;
-    els['filter-situacao'].value = state.filters.situacao;
-    els['filter-reg-di'].value = state.filters.regDi;
-    els['filter-mercadoria'].value = state.filters.mercadoria;
-    els['filter-modal'].value = state.filters.modal;
-    els['filter-incoterm'].value = state.filters.incoterm;
-    els['filter-despachante'].value = state.filters.despachante;
-    els['table-search'].value = state.search;
-    els['page-size'].value = String(state.pageSize);
-  }
-
-  function resetFilters(options) {
-    var settings = options || {};
-    state.filters = global.DashboardState.defaultFilters();
-    state.search = '';
-    state.page = 1;
-    applyFilterStateToInputs();
-    if (settings.skipRefresh !== true) refresh();
-    schedulePersist();
-    if (settings.silent !== true) global.UI.toast('Filtros limpos.', 'info');
-  }
-
-  function getSelectedYear() {
-    var selected = String(state.filters.ano || 'ALL');
-    if (selected === 'ALL') return null;
-    var year = Number(selected);
-    return Number.isInteger(year) && year >= 1900 && year <= 2100 ? year : null;
-  }
-
-  function matchesFilters(item, selectedYear, operacaoFilter, searchQuery) {
-    var filters = state.filters;
-    // Os filtros de operação e de busca comparam a forma normalizada
-    // (sem acentos): digitar "acido" encontra "Ácido" (A3).
-    var normalizedOperacao = operacaoFilter != null ? operacaoFilter : normalizeSearchText(filters.operacao);
-    var normalizedSearch = searchQuery != null ? searchQuery : normalizeSearchText(state.search);
-    if (filters.ano !== 'ALL' && selectedYear != null && getMonthlyReferenceYear(item) !== selectedYear) return false;
-    if (normalizedOperacao && normalizeSearchText(item.operacao).indexOf(normalizedOperacao) === -1) return false;
-    if (getMonthFilterMode() === 'none') return false;
-    var selectedMonths = getSelectedMonths();
-    if (selectedMonths.length && selectedMonths.indexOf(String(getMonthlyReferenceMonth(item))) === -1) return false;
-    if (filters.analista !== 'ALL' && item.analista !== filters.analista) return false;
-    if (filters.situacao !== 'ALL') {
-      var done = global.ETL.isConcluida(item);
-      var cancelled = typeof global.ETL.isCancelada === 'function' ? global.ETL.isCancelada(item) : false;
-      if (filters.situacao === 'Concluida' && !done) return false;
-      if (filters.situacao === 'Cancelada' && !cancelled) return false;
-      if (filters.situacao === 'Andamento' && (done || cancelled)) return false;
-    }
-    if (filters.regDi !== 'ALL') {
-      var registered = global.ETL.isDiRegistered(item);
-      if (filters.regDi === 'REGISTRADA' && !registered) return false;
-      if (filters.regDi === 'PENDENTE' && registered) return false;
-    }
-    if (filters.mercadoria !== 'ALL' && item.mercadoria !== filters.mercadoria) return false;
-    if (filters.modal !== 'ALL') {
-      var modalCategory = item.modalCategory || global.ETL.classifyModal(item.modal);
-      if (filters.modal !== modalCategory) return false;
-    }
-    if (filters.incoterm !== 'ALL' && item.incoterm !== filters.incoterm) return false;
-    if (filters.despachante !== 'ALL' && item.despachante !== filters.despachante) return false;
-    if (normalizedSearch && String(item._search || '').indexOf(normalizedSearch) === -1) return false;
-    return true;
-  }
-
-  function getVisibleData() {
-    var selectedYear = getSelectedYear();
-    // Normaliza uma única vez: a busca e o filtro são aplicados a cada
-    // registro do dataset.
-    var operacaoFilter = normalizeSearchText(state.filters.operacao);
-    var searchQuery = normalizeSearchText(state.search);
-    return state.dataset.filter(function (item) {
-      return matchesFilters(item, selectedYear, operacaoFilter, searchQuery);
-    });
-  }
-
-  function sortValue(item, key) {
-    switch (key) {
-      case 'month':
-        var referenceMonth = getMonthlyReferenceMonth(item);
-        if (referenceMonth == null) return -1;
-        var referenceYear = getMonthlyReferenceYear(item);
-        return (referenceYear == null ? 0 : referenceYear) * 100 + referenceMonth;
-      case 'valor': return item.valorUSD != null ? item.valorUSD : (item.valor || 0);
-      case 'peso': return item.peso || 0;
-      case 'slaDias': return item.slaDias == null ? -1 : item.slaDias;
-      case 'rota': return (item.origem + ' ' + item.destino).toLowerCase();
-      case 'regDi':
-        var regDiText = String(item.regDi || '').trim();
-        if (!regDiText) return -1;
-        var regDiMatch = regDiText.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-        if (regDiMatch) return Number(regDiMatch[3]) * 10000 + Number(regDiMatch[2]) * 100 + Number(regDiMatch[1]);
-        return Number.MAX_SAFE_INTEGER;
-      default: return String(item[key] == null ? '' : item[key]).toLowerCase();
-    }
-  }
-
-  function getSortedData() {
-    var key = state.sort.key;
-    var dir = state.sort.dir;
-    return state.filtered.slice().sort(function (a, b) {
-      var valueA = sortValue(a, key);
-      var valueB = sortValue(b, key);
-      if (typeof valueA === 'number' && typeof valueB === 'number') {
-        return (valueA - valueB) * dir;
-      }
-      return String(valueA).localeCompare(String(valueB), 'pt-BR') * dir;
     });
   }
 
