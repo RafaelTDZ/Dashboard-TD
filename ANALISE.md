@@ -43,7 +43,7 @@
 | F5 | 🟠 P1 | `app.js` monolítico e acoplamento por globals | `[x]` |
 | F6 | 🟠 P1 | Snapshot inteiro e limite de escala | `[ ]` |
 | F7 | 🟡 P2 | Tailwind em runtime e CSP permissiva | `[x]` |
-| F8 | 🟡 P2 | Higiene de engenharia e documentação | `[ ]` |
+| F8 | 🟡 P2 | Higiene de engenharia e documentação | `[x]` |
 | F9 | 🟠 P1 | Resumo do dataset e total não persistem no Dashboard | `[x]` |
 | F10 | 🟡 P2 | Cobertura de testes não comprova T3/T4/M5/B6 | `[ ]` |
 
@@ -814,15 +814,16 @@ build no deploy:
 
 **Evidência**
 
-- Não há `.gitignore`, `.gitattributes`, `.github/` nem `vercel.json`.
-- `.agents/` está untracked (skill do Supabase via MCP).
+- Não havia `.gitignore`, `.github/` nem `vercel.json` (o `.gitattributes` foi
+  criado no F1).
+- `.agents/` estava untracked (skill do Supabase via MCP).
 - Sem ESLint/Prettier/type check.
 - A versão anterior deste documento tinha deriva: topo falava em 55 testes,
   log em 103, A2/B17 em 104; painel declarava 32 concluídos/2 pendentes, mas o
   real é 31/3; 8 itens `[x]` eram parciais (A2, M2, M5, M7, B6, B9, T3, T4);
   checkboxes internos desmarcados em A1/A3/M1–M8; B10/B14/B16 abertos.
-- Regras duplicadas (`isEmptyValue` vs `isEmptyPersistedValue`; canonicalização
-  no ETL e no `app.js`) dependem de disciplina para não divergir.
+- Regras duplicadas (`isEmptyValue` vs `isEmptyPersistedValue`) dependiam de
+  disciplina para não divergir; a canonicalização já era delegada ao ETL.
 
 **Correção sugerida**
 
@@ -862,13 +863,33 @@ jobs:
 4. Extrair as regras duplicadas para `core/normalize.js` e cobrir com testes.
 5. Opcional: `vercel.json` com `Cache-Control` explícito para HTML e assets.
 
+**Execução adotada**
+
+1. `.gitignore` cobre `node_modules/`, `.vercel/`, `.agents/`, `*.log`, `.DS_Store`
+   e `Thumbs.db`.
+2. CI em `.github/workflows/test.yml`: matriz `ubuntu-latest` + `windows-latest`,
+   Node 20, `node --test` e `permissions: contents: read`. Não depende de
+   `npm install`.
+3. D4 decidida: `.agents/` é ferramenta local e fica ignorada; não é versionada.
+4. A regra de valor vazio passou a ter uma única implementação:
+   `DashboardState.isEmptyValue`. `normalize.create()` exige a função e
+   `toPersistedRecord` a usa; `recordFingerprint` usa a mesma fonte.
+5. A canonicalização continua delegada a `ETL.canonicalizeField` por
+   `normalize.canonicalizeDataset`; o `app.js` só injeta o wrapper, sem
+   reimplementar a regra.
+6. O painel de progresso e o registro refletem o estado real; a seção
+   “Auditoria dos 34 itens” permanece explicitamente datada no commit
+   `f185f84`, como histórico. B10 foi resolvido no F7 e saiu das pendências.
+7. `vercel.json` não foi adicionado: a Vercel já serve os estáticos com ETag e
+   cachear assets sem fingerprint por longo prazo atrapalharia atualizações.
+
 **Critérios de aceite**
 
-- [ ] `.gitignore` cobre artefatos locais
-- [ ] CI roda em Linux e Windows
-- [ ] Documento único sem contagens/checkboxes contraditórios
-- [ ] Regras de normalização têm uma única fonte de verdade
-- [ ] Decisão sobre `.agents/` registrada
+- [x] `.gitignore` cobre artefatos locais
+- [x] CI roda em Linux e Windows
+- [x] Documento único sem contagens/checkboxes contraditórios (auditoria histórica datada)
+- [x] Regras de normalização têm uma única fonte de verdade (`DashboardState.isEmptyValue`)
+- [x] Decisão sobre `.agents/` registrada (D4 = B, ignorar)
 
 ---
 
@@ -1057,11 +1078,10 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | Filtro 2026 | 861 registros; 10 sem `monthlyReference` |
 | Timeouts | `anon=3s`; `authenticated=8s`; `authenticator=8s/8s` (B14) |
 
-### Pendências herdadas (B10, B14, B16)
+### Pendências herdadas (B14, B16)
 
 | Item | Evidência | Correção sugerida | Critério de aceite |
 |---|---|---|---|
-| **B10** | Tailwind Play CDN compila em runtime; CSP precisa de `'unsafe-eval'`; console avisa para não usar em produção. | Compilar CSS estático varrendo `index.html` **e** `assets/js/*.js` (classes de badge/status só existem em strings); ou manter o runtime documentando o trade-off (D3/D5). | CSS estático, visual equivalente e console limpo. |
 | **B14** | `anon=3s`, `authenticated=8s`, `authenticator=8s/8s`; o `anon` é o papel usado pelo dashboard. | Aumentar `statement_timeout` do `anon` (ex.: 30 s) ou mover a escrita para Edge Function com timeout próprio (DA5). | Importação do dataset real sem timeout. |
 | **B16** | `Plus Jakarta Sans` está com `"version": "unknown"` no manifesto. | Identificar a versão real do CSS do Google Fonts e fixar origem/hash; ou registrar explicitamente que a versão não é rastreável. | Manifesto sem `unknown` ou exceção documentada. |
 
@@ -1073,7 +1093,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 |---|---|---|---|
 | DA1 | Filtro de ano padrão (B9) | (a) ano corrente + exibir total; (b) “Todos os anos” | ✅ (a) aplicada, mas o total ficou só na aba Tabela (ver F9) |
 | DA2 | Onde exibir o resumo do dataset (A2) | (a) card permanente; (b) barra de filtros; (c) cabeçalho; (d) card de status transitório | ✅ (d) aplicada; o cabeçalho persistente ficou incompleto (ver F9) |
-| DA3 | Compilar o Tailwind (B10) | (a) sim, CSS estático; (b) manter Play CDN | ⏸️ aberta; corresponde a D3/D5 |
+| DA3 | Compilar o Tailwind (B10) | (a) sim, CSS estático; (b) manter Play CDN | ✅ (a) aplicada no F7 |
 | DA4 | Recorte de payload (M1) | (a) só `_search`; (b) também campos vazios; (c) Storage + Edge Function | ✅ (b) aplicada; (c) evolução futura |
 | DA5 | Timeout do `anon` (B14) | (a) 30 s; (b) Edge Function | ⏸️ aberta |
 
@@ -1086,7 +1106,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 - [x] Criar branch de trabalho (`chore/estrutura-correcoes`)
 - [x] Confirmar árvore limpa (exceto `.agents/`)
 - [x] Rodar `node --test` e registrar o baseline (101/104 no Windows)
-- [ ] Fotografar/validar visualmente o dashboard atual
+- [x] Fotografar/validar visualmente o dashboard atual
 
 ### Fase 1 — Confiabilidade (P0)
 
@@ -1123,7 +1143,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | D1 | Modelo de escrita (**F4**) | A: público documentado · B: Auth · C: Edge Function | ✅ A (histórico + rollback) |
 | D2 | Escala do snapshot (**F6**) | A: manter · B: Storage · C: normalizado · D: híbrido | ⏸️ aberto |
 | D3 | Tailwind (**F7**) | A: compilar agora · B: manter runtime | ✅ A (CSS estático) |
-| D4 | `.agents/` | A: versionar · B: ignorar | ⏸️ aberto |
+| D4 | `.agents/` | A: versionar · B: ignorar | ✅ B (ignorado no `.gitignore`) |
 | D5 | Restrição “sem build” | A: manter (CSS gerado versionado) · B: permitir build no deploy | ✅ A (geração manual versionada) |
 
 ---
@@ -1160,6 +1180,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Fase 3 | F5 passo 5 | normalização, filtros, view e snapshot em módulos | subagente F5 | commit `abe373a`; 113/113; `app.js` 898→368; smoke no navegador local |
 | 21/10/2026 | Fase 3 | F4 | opção A + histórico append-only + rollback administrativo | subagente F4 | commit `2e98b33`; migration `20261021120000_excel_imports_history.sql` aplicada no remoto (`20261021163449`); 114/114; trigger validado em transação revertida |
 | 21/10/2026 | Fase 3 | F7 | Tailwind compilado + CSP sem `unsafe-*` + `connect-src` exato | subagente F7 | commit `48f77db`; 115/115; capturas 1400×1200 idênticas byte a byte; console limpo |
+| 21/10/2026 | Fase 3 | F8 | `.gitignore`, CI Linux/Windows e fonte única de valor vazio | subagente F8 | commit `17b7c15`; 118/118; D4 = ignorar `.agents/` |
 | | | | | | |
 | | | | | | |
 
