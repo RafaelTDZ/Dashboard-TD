@@ -346,6 +346,10 @@ test('migração de endurecimento fecha o bypass de privilégios e o DELETE sem 
   // Os comentários são removidos antes da varredura: o SQL documenta o
   // comando antigo no texto e não pode ser confundido com código executável.
   const sqlCode = (source) => source
+    // Normaliza o fim de linha antes de remover comentários: no Windows o
+    // checkout pode vir em CRLF e `--.*$` não casaria com o `\r` residual,
+    // deixando o `delete ...;` comentado passar como código executável.
+    .replace(/\r\n/g, '\n')
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .split('\n')
     .map((line) => line.replace(/--.*$/, ''))

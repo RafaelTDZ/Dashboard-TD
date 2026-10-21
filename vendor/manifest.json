@@ -41,7 +41,7 @@
       "name": "Vercel Web Analytics",
       "version": "2.0.1",
       "entry": "vendor/vercel-analytics.mjs",
-      "sha256": "84C06A99CB192098CB3C96AF9B8F1080DA3E5EC26C8124388A2903EE03B36944",
+      "sha256": "C3026B63C92AB1B612EDDC0E58264EDC02421F32E2D11F71ECD0E6DD3B22C829",
       "origin": "https://registry.npmjs.org/@vercel/analytics/-/analytics-2.0.1.tgz"
     }
   ],
