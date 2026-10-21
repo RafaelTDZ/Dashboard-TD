@@ -40,7 +40,7 @@
 | F2 | 🔴 P0 | “Mais recente vence” ainda usa timestamp do cliente | `[x]` |
 | F3 | 🟠 P1 | Sem timeout de rede e restauração bloqueante | `[x]` |
 | F4 | 🟠 P1 | Escrita pública sem autenticação e sem histórico | `[ ]` |
-| F5 | 🟠 P1 | `app.js` monolítico e acoplamento por globals | `[ ]` |
+| F5 | 🟠 P1 | `app.js` monolítico e acoplamento por globals | `[~]` |
 | F6 | 🟠 P1 | Snapshot inteiro e limite de escala | `[ ]` |
 | F7 | 🟡 P2 | Tailwind em runtime e CSP permissiva | `[ ]` |
 | F8 | 🟡 P2 | Higiene de engenharia e documentação | `[ ]` |
@@ -588,7 +588,7 @@ create table if not exists public.excel_imports_history (
 
 | | |
 |---|---|
-| **Arquivos** | `assets/js/app.js` (1.721 linhas, ~81 funções) · `index.html:40-47` |
+| **Arquivos** | `assets/js/app.js` (1.232 linhas, ~64 funções) · `index.html:40-48` |
 | **Esforço** | 🟡 ~1-2 dias (incremental) |
 | **Risco** | Médio (refatoração sem mudança de comportamento) |
 
@@ -636,7 +636,17 @@ assets/js/
 4. Extrair `banner.js`.
 5. Deixar `app.js` como composition root.
 
-Cada passo deve terminar com `node --test` 104/104 e nenhuma mudança visual.
+Cada passo deve terminar com `node --test` verde e nenhuma mudança visual.
+
+**Execução incremental adotada**
+
+O split foi feito preservando IIFE/globals e a ordem dos scripts, sem build:
+
+1. `table.js` — tabela, paginação, ordenação e exportação CSV (passo 1).
+2. `banner.js` — banners, KPIs e resumo do dataset (passo 2).
+3. `persistence.js` — Supabase + IndexedDB, snapshot e restauração (passo 3).
+4. `import.js` — upload, parse, comparação e relatório de importação (próximo).
+5. `app.js` — composição, eventos, filtros e regras de apresentação.
 
 **Critérios de aceite**
 
@@ -1101,6 +1111,9 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Fase 1 | F2 | `created_at` server-authoritative no save e na restauração | subagente F2 | commit `9735256`; 107/107; 3 testes novos |
 | 21/10/2026 | Fase 2 | F9 | resumo persistente no cabeçalho + hint do KPI + texto da tabela | subagente F9 | commit `1f561bb`; 108/108; validado no navegador local |
 | 21/10/2026 | Fase 2 | F3 | timeout de rede, restore local-first e mensagem de importação | subagente F3 | commit `0499816`; 113/113; 5 testes novos |
+| 21/10/2026 | Fase 3 | F5 passo 1 | tabela, paginação, ordenação e CSV em `table.js` | subagente F5 | commit `9b42b47`; 113/113; `app.js` 1.817→1.667 |
+| 21/10/2026 | Fase 3 | F5 passo 2 | banners, KPIs e resumo em `banner.js` | subagente F5 | commit `812f729`; 113/113; `app.js` 1.667→1.524 |
+| 21/10/2026 | Fase 3 | F5 passo 3 | persistência Supabase/IndexedDB em `persistence.js` | subagente F5 | commit `32cde6c`; 113/113; `app.js` 1.524→1.232 |
 | | | | | | |
 | | | | | | |
 
