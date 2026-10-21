@@ -23,6 +23,20 @@ function jsFiles(directory) {
     .map((entry) => join(directory, entry.name));
 }
 
+// Remove comentários antes de varrer o SQL executável: as migrations
+// documentam comandos antigos no texto e eles não podem ser confundidos com
+// código. O fim de linha é normalizado porque o checkout no Windows pode vir
+// em CRLF e `--.*$` não casaria com o `\r` residual.
+const sqlCode = (source) => source
+  .replace(/\r\n/g, '\n')
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .split('\n')
+  .map((line) => line.replace(/--.*$/, ''))
+  .join('\n');
+
+const deletesWithoutWhere = (source) => [...sqlCode(source).matchAll(/delete\s+from\s+([\s\S]*?);/gi)]
+  .filter((match) => !/\bwhere\b/i.test(match[1]));
+
 test('todos os scripts JavaScript têm sintaxe válida', () => {
   const files = jsFiles(join(root, 'assets', 'js'));
   for (const file of files) {
@@ -330,7 +344,7 @@ test('migrations espelham o histórico remoto e mantêm um único snapshot', () 
     .map((name) => name.match(/^(\d{14})_/))
     .filter(Boolean)
     .map((match) => match[1]);
-  assert.deepEqual(versions, ['20261009142126', '20261019141213', '20261020120000']);
+  assert.deepEqual(versions, ['20261009142126', '20261019141213', '20261020120000', '20261021120000']);
 });
 
 test('migração de endurecimento fecha o bypass de privilégios e o DELETE sem WHERE', () => {
@@ -347,19 +361,9 @@ test('migração de endurecimento fecha o bypass de privilégios e o DELETE sem 
   // "DELETE requires a WHERE clause" (SQLSTATE 21000). A migration nova
   // corrige isso com `where id in (select id from public.excel_imports)`,
   // que apaga exatamente as mesmas linhas.
-  // Os comentários são removidos antes da varredura: o SQL documenta o
-  // comando antigo no texto e não pode ser confundido com código executável.
-  const sqlCode = (source) => source
-    // Normaliza o fim de linha antes de remover comentários: no Windows o
-    // checkout pode vir em CRLF e `--.*$` não casaria com o `\r` residual,
-    // deixando o `delete ...;` comentado passar como código executável.
-    .replace(/\r\n/g, '\n')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .split('\n')
-    .map((line) => line.replace(/--.*$/, ''))
-    .join('\n');
-  const deletesWithoutWhere = (source) => [...sqlCode(source).matchAll(/delete\s+from\s+public\.excel_imports([\s\S]*?);/gi)]
-    .filter((match) => !/\bwhere\b/i.test(match[1]));
+  // Os comentários são removidos pelo helper antes da varredura: o SQL
+  // documenta o comando antigo no texto e não pode ser confundido com código
+  // executável.
   assert.equal(deletesWithoutWhere(harden).length, 0, 'a migration nova não pode ter DELETE sem WHERE');
   assert.match(harden, /delete from public\.excel_imports\s+where id in \(select id from public\.excel_imports\);/i);
 
@@ -387,4 +391,74 @@ test('migração de endurecimento fecha o bypass de privilégios e o DELETE sem 
   assert.match(harden, /create or replace function public\.touch_updated_at\(\)/);
   assert.match(harden, /new\.updated_at := now\(\);/);
   assert.match(harden, /create trigger excel_imports_touch_updated_at\s+before update on public\.excel_imports/);
+});
+
+test('F4: histórico append-only e rollback', () => {
+  const history = readFileSync(join(root, 'supabase', 'migrations', '20261021120000_excel_imports_history.sql'), 'utf8');
+  const readme = readFileSync(join(root, 'README.md'), 'utf8');
+  const code = sqlCode(history);
+
+  // Tabela própria: NÃO pode usar `like ... including all`, senão o índice
+  // único singleton da tabela corrente seria copiado para o histórico e
+  // impediria mais de uma linha.
+  assert.match(code, /create table if not exists public\.excel_imports_history\s*\(/);
+  assert.doesNotMatch(code, /like public\.excel_imports including all/i);
+  assert.match(code, /history_id bigint generated always as identity primary key/);
+  assert.match(code, /import_id uuid not null/);
+  assert.match(code, /records jsonb not null/);
+  assert.match(code, /archived_at timestamptz not null default now\(\)/);
+  assert.match(code, /add constraint excel_imports_history_records_is_array\s+check \(jsonb_typeof\(records\) = 'array' and jsonb_array_length\(records\) > 0\);/);
+
+  // Índice para listar o histórico do mais recente para o mais antigo.
+  assert.match(code, /create index if not exists excel_imports_history_created_at_idx\s+on public\.excel_imports_history \(created_at desc, history_id desc\);/);
+
+  // RLS habilitada e nenhum privilégio para o cliente.
+  assert.match(code, /alter table public\.excel_imports_history enable row level security;/);
+  assert.doesNotMatch(code, /grant[^;]*\bto\b[^;]*\b(?:anon|authenticated)\b/i);
+
+  // O DELETE da tabela corrente arquiva o snapshot antes de removê-lo.
+  assert.match(code, /create trigger excel_imports_archive_history\s+before delete on public\.excel_imports\s+for each row execute function public\.excel_imports_archive_history\(\);/);
+  assert.match(code, /create or replace function public\.excel_imports_archive_history\(\)\s+returns trigger/);
+  assert.match(code, /insert into public\.excel_imports_history\s+\(import_id, file_name, sheet_name, records, metadata, created_at, updated_at, archived_at\)\s+values\s+\(old\.id, old\.file_name, old\.sheet_name, old\.records, old\.metadata, old\.created_at, old\.updated_at, now\(\)\);/);
+
+  // Rollback: busca o histórico, desabilita só o trigger de superset na
+  // transação, arquiva o snapshot vigente com o DELETE, restaura a linha e
+  // reabilita o trigger.
+  assert.match(code, /create or replace function public\.excel_imports_rollback\(p_history_id bigint\)\s+returns uuid/);
+  assert.match(code, /v_row public\.excel_imports_history%rowtype;/);
+  assert.match(code, /HISTORY_NOT_FOUND: histórico % não encontrado/);
+  assert.match(code, /alter table public\.excel_imports disable trigger excel_imports_single_latest;/);
+  assert.match(code, /delete from public\.excel_imports\s+where id in \(select id from public\.excel_imports\);/);
+  assert.match(code, /insert into public\.excel_imports\s+\(id, file_name, sheet_name, records, metadata, created_at, updated_at\)/);
+  // O rollback é um novo evento: usa now() para vencer caches locais antigos;
+  // os timestamps originais permanecem na linha do histórico.
+  assert.match(code, /\(v_row\.import_id, v_row\.file_name, v_row\.sheet_name, v_row\.records, v_row\.metadata, now\(\), now\(\)\)/);
+  assert.match(code, /alter table public\.excel_imports enable trigger excel_imports_single_latest;/);
+  const disableAt = code.indexOf('alter table public.excel_imports disable trigger excel_imports_single_latest;');
+  const deleteAt = code.indexOf('delete from public.excel_imports', disableAt);
+  const insertAt = code.indexOf('insert into public.excel_imports', deleteAt);
+  const enableAt = code.indexOf('alter table public.excel_imports enable trigger excel_imports_single_latest;', insertAt);
+  assert.ok(disableAt >= 0 && deleteAt > disableAt && insertAt > deleteAt && enableAt > insertAt, 'rollback deve desabilitar, apagar, inserir e reabilitar nesta ordem');
+
+  // As duas funções SECURITY DEFINER não podem ser chamadas pelo cliente.
+  assert.match(code, /revoke execute on function public\.excel_imports_archive_history\(\)\s+from public, anon, authenticated;/);
+  assert.match(code, /revoke execute on function public\.excel_imports_rollback\(bigint\)\s+from public, anon, authenticated;/);
+
+  // `search_path` restrito nas duas funções.
+  assert.equal((code.match(/set search_path = ''/g) || []).length, 2);
+
+  // O histórico é append-only para o cliente: sem UPDATE/DELETE.
+  assert.doesNotMatch(code, /update\s+public\.excel_imports_history/i);
+  assert.doesNotMatch(code, /delete\s+from\s+public\.excel_imports_history/i);
+
+  // Nenhum DELETE sem WHERE no SQL novo (o helper remove comentários antes).
+  assert.equal(deletesWithoutWhere(history).length, 0, 'o SQL novo não pode ter DELETE sem WHERE');
+  assert.match(code, /delete from public\.excel_imports\s+where id in \(select id from public\.excel_imports\);/i);
+
+  // README documenta a decisão A, o histórico, o rollback e o risco residual.
+  assert.match(readme, /opção A/i);
+  assert.match(readme, /excel_imports_history/);
+  assert.match(readme, /excel_imports_rollback/);
+  assert.match(readme, /risco residual/i);
+  assert.match(readme, /20261021120000_excel_imports_history\.sql/);
 });
