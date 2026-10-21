@@ -107,15 +107,34 @@ test('Content-Security-Policy restringe as origens e bloqueia plugins', () => {
   const csp = content[1];
 
   assert.match(csp, /default-src 'self'/);
-  assert.match(csp, /connect-src 'self' https:\/\/\*\.supabase\.co/);
+  assert.match(csp, /connect-src 'self' https:\/\/bsczvemaqvladupmdpgl\.supabase\.co/);
+  assert.doesNotMatch(csp, /https:\/\/\*\.supabase\.co/, 'connect-src não deve liberar qualquer projeto Supabase');
   assert.match(csp, /object-src 'none'/);
   assert.match(csp, /base-uri 'self'/);
   assert.match(csp, /worker-src 'self'/);
-  // 'unsafe-inline' é obrigatório por causa do tailwind.config inline.
-  assert.match(csp, /script-src 'self' 'unsafe-inline'/);
+  // O Tailwind é compilado e não há mais script inline nem eval.
+  assert.match(csp, /script-src 'self'/);
+  assert.doesNotMatch(csp, /'unsafe-eval'/);
+  assert.doesNotMatch(csp, /'unsafe-inline'/);
   assert.match(csp, /font-src 'self' data:/);
   assert.match(csp, /img-src 'self' data:/);
   assert.match(csp, /form-action 'self'/);
+});
+
+test('Tailwind é compilado e servido como CSS estático (F7)', () => {
+  assert.doesNotMatch(html, /vendor\/tailwind\.js/, 'o Play CDN não deve voltar ao index.html');
+  assert.doesNotMatch(html, /tailwind\.config/, 'não deve haver configuração inline do Tailwind');
+
+  const tailwindLink = html.indexOf('href="assets/css/tailwind.css"');
+  const stylesLink = html.indexOf('href="assets/css/styles.css"');
+  assert.ok(tailwindLink > -1, 'o CSS compilado do Tailwind precisa ser carregado');
+  assert.ok(tailwindLink < stylesLink, 'o Tailwind precisa vir antes dos estilos próprios');
+
+  const css = readFileSync(join(root, 'assets', 'css', 'tailwind.css'), 'utf8');
+  assert.ok(css.length > 10000, 'o CSS compilado parece incompleto');
+  for (const utility of ['.bg-darkbg', '.text-slate-100', '.bg-emerald-600', '.text-slate-400']) {
+    assert.ok(css.includes(utility), 'utility ausente no CSS compilado: ' + utility);
+  }
 });
 
 // ---------------------------------------------------------------------------

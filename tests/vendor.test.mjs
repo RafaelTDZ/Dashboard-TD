@@ -65,7 +65,7 @@ function libraryNamed(pattern) {
 test('o manifesto de dependências é um JSON válido e tem a nota de origem', () => {
   assert.equal(typeof manifest, 'object');
   assert.ok(Array.isArray(manifest.libraries), 'a chave libraries precisa ser uma lista');
-  assert.ok(manifest.libraries.length >= 6, 'todas as bibliotecas vendorizadas precisam estar listadas');
+  assert.ok(manifest.libraries.length >= 5, 'todas as bibliotecas vendorizadas precisam estar listadas');
   assert.equal(typeof manifest.note, 'string');
   assert.ok(manifest.note.length > 0, 'a nota do manifesto não pode estar vazia');
   assert.equal(manifest.strategy, 'offline-vendored');
@@ -146,11 +146,9 @@ test('toda entrada do diretório vendor/ tem registro no manifesto', () => {
 });
 
 test('o manifesto registra as libs vendorizadas com versão real (B11)', () => {
-  // O manifesto não pode mais esconder a versão do Tailwind.
-  const tailwind = libraryNamed(/tailwind\.js$/);
-  assert.ok(tailwind, 'o Tailwind vendorizado precisa estar no manifesto');
-  assert.notEqual(tailwind.version, 'unknown', 'a versão do Tailwind não pode ser "unknown"');
-  assert.match(tailwind.version, /^\d+\.\d+\.\d+$/);
+  // O Tailwind Play CDN foi substituído por CSS compilado e não é mais
+  // vendorizado; o manifesto não deve voltar a apontar para ele.
+  assert.equal(libraryNamed(/tailwind\.js$/), undefined, 'o Tailwind Play CDN não deve voltar ao vendor/');
 
   // A analytics do Vercel (que não era registrada) precisa estar no manifesto.
   const analytics = libraryNamed(/vercel-analytics\.mjs$/);

@@ -1,6 +1,6 @@
 # BI Integration Hub
 
-Dashboard estático para visualização e importação de dados de processos de comércio exterior. O processamento dos arquivos (`!Importações.xlsx`) acontece no próprio navegador, sem etapa de build: os dados ficam em cache local e são sincronizados com o Supabase.
+Dashboard estático para visualização e importação de dados de processos de comércio exterior. O processamento dos arquivos (`!Importações.xlsx`) acontece no próprio navegador, sem build em runtime: os dados ficam em cache local e são sincronizados com o Supabase.
 
 - **Produção**: https://tdz-db.vercel.app (deploy automático pela Vercel a partir deste repositório)
 - **Local**: `node tools/serve.mjs 8765` → `http://127.0.0.1:8765/`
@@ -15,6 +15,18 @@ node tools/serve.mjs 8765
 ```
 
 Abra `http://127.0.0.1:8765/` no Chrome ou Edge. Sem conexão com a internet, o dashboard continua funcionando com os dados do cache local.
+
+## CSS (Tailwind)
+
+O Tailwind não roda no navegador. O CSS é compilado previamente e versionado em `assets/css/tailwind.css`, carregado antes de `assets/css/styles.css`. A configuração fica em `tailwind.config.cjs` e varre `index.html` **e** `assets/js/**/*.js` (as classes de badge/status só existem em strings do JavaScript).
+
+Para regenerar depois de adicionar classes:
+
+```powershell
+npm run build:css
+```
+
+O script usa `npx --yes tailwindcss@3.4.16` (versão fixa) e `--minify`; não é necessário `npm install`. O CSS gerado deve ser commitado junto com a mudança que o exigiu. Como não há script inline nem `eval`, a CSP do `index.html` usa apenas `script-src 'self'` e `connect-src` restrito ao host do projeto Supabase.
 
 ## Persistência dos dados
 
@@ -96,7 +108,7 @@ Get-ChildItem assets/js -Filter *.js | ForEach-Object { node --check $_.FullName
 7. Recarregue a página e confirme a restauração do último dataset (o mais recente entre nuvem e cache local) e que a tabela `excel_imports` tem apenas uma linha.
 8. Mude filtros e estilo, recarregue de novo e confirme que voltam como estavam (persistência local; a nuvem só recebe snapshots em importações).
 9. Abra e feche o relatório pelo teclado; o foco deve retornar ao botão de origem.
-10. Verifique o console do navegador para erros após cada fluxo (o aviso do Tailwind Play CDN é esperado; fora da Vercel, o 404 de `/_vercel/insights/script.js` também).
+10. Verifique o console do navegador para erros após cada fluxo (fora da Vercel, o 404 de `/_vercel/insights/script.js` é esperado).
 
 ## Estrutura
 
@@ -106,8 +118,8 @@ Get-ChildItem assets/js -Filter *.js | ForEach-Object { node --check $_.FullName
 - `supabase/migrations/` — SQL das migrations (snapshot único, endurecimento, histórico append-only e rollback), incluindo `20261021120000_excel_imports_history.sql`.
 - `tests/` — suíte `node --test`.
 - `data/` — planilha de referência do smoke test.
-- `vendor/` — bibliotecas offline (SheetJS/XLSX, Chart.js, Tailwind, Font Awesome e Vercel Analytics).
+- `vendor/` — bibliotecas offline (SheetJS/XLSX, Chart.js, Font Awesome e Vercel Analytics).
 
 ## Dependências offline
 
-As bibliotecas de runtime ficam em `vendor/`; os hashes e as referências de origem registradas durante a revisão estão em `vendor/manifest.json`. O `package.json` e o `pnpm-lock.yaml` existem para o ambiente da Vercel/v0 (ex.: `@vercel/analytics`); o dashboard não precisa de `npm install` para rodar.
+As bibliotecas de runtime ficam em `vendor/`; os hashes e as referências de origem registradas durante a revisão estão em `vendor/manifest.json`. O `package.json` e o `pnpm-lock.yaml` existem para o ambiente da Vercel/v0 (ex.: `@vercel/analytics`); o dashboard não precisa de `npm install` para rodar. O único artefato gerado é `assets/css/tailwind.css`, versionado no repositório.

@@ -3,13 +3,6 @@
   "strategy": "offline-vendored",
   "libraries": [
     {
-      "name": "Tailwind CSS browser bundle",
-      "version": "3.4.16",
-      "entry": "vendor/tailwind.js",
-      "sha256": "3F81AA7F6ECDB1ACC14C202E513DFEE00B6C7703CD81CE1BE25BF5215A92E8CB",
-      "origin": "https://tailwindcss.com/docs/installation/play-cdn"
-    },
-    {
       "name": "Chart.js",
       "version": "4.4.7",
       "entry": "vendor/chart.umd.min.js",
