@@ -9,6 +9,7 @@ import test from 'node:test';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const htmlPath = join(root, 'index.html');
 const html = readFileSync(htmlPath, 'utf8');
+const table = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 
 function jsFiles(directory) {
   return readdirSync(directory, { withFileTypes: true })
@@ -76,8 +77,8 @@ test('importador preserva campos auxiliares e observações da planilha', () => 
   assert.match(etl, /extractOperationAcronym/);
   assert.match(etl, /raw: false/);
   assert.match(app, /commentCount/);
-  assert.match(app, /Comentários;Linha Excel/);
-  assert.match(app, /Valor informado;Moeda;Valor USD/);
+  assert.match(table, /Comentários;Linha Excel/);
+  assert.match(table, /Valor informado;Moeda;Valor USD/);
   assert.match(app, /valorUSD/);
   assert.match(readFileSync(join(root, 'assets', 'js', 'ui.js'), 'utf8'), /formatCurrencyFull/);
 });
@@ -157,7 +158,7 @@ test('filtro e coluna de mês usam a mesma referência de data (ETA/ETS)', () =>
   // Multi-seleção: o registro passa quando o mês dele está entre os marcados.
   assert.match(app, /selectedMonths\.length && selectedMonths\.indexOf\(String\(getMonthlyReferenceMonth\(item\)\)\) === -1/);
   assert.doesNotMatch(app, /String\(item\.month\) !== filters\.mes/);
-  assert.match(app, /monthName\(getMonthlyReferenceMonth\(item\)\)/);
+  assert.match(table, /monthName\(getMonthlyReferenceMonth\(item\)\)/);
 });
 
 test('filtro de mês permite marcar vários meses (multi-seleção)', () => {

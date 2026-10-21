@@ -12,6 +12,7 @@ import test from 'node:test';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const html = readFileSync(join(root, 'index.html'), 'utf8');
 const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+const table = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 const charts = readFileSync(join(root, 'assets', 'js', 'charts.js'), 'utf8');
 
 function tagOf(source, id) {
@@ -20,8 +21,8 @@ function tagOf(source, id) {
   return match[0];
 }
 
-function bodyOf(source, signature) {
-  const match = source.match(new RegExp(signature + '\\s*\\{([\\s\\S]*?)\\n  \\}'));
+function bodyOf(source, signature, indent = 2) {
+  const match = source.match(new RegExp(signature + '\\s*\\{([\\s\\S]*?)\\n' + ' '.repeat(indent) + '\\}'));
   assert.ok(match, 'a função ' + signature + ' não foi encontrada');
   return match[1];
 }
@@ -225,13 +226,13 @@ test('código morto de LATEST, getAnalistaMode e schedulePersist(remote) foi rem
 // ---------------------------------------------------------------------------
 
 test('tabela mostra o total do dataset junto do total filtrado', () => {
-  const render = bodyOf(app, 'function renderTable\\(\\)');
+  const render = bodyOf(table, 'function renderTable\\(\\)', 4);
   assert.match(render, /var datasetTotal = state\.dataset\.length;/);
-  assert.match(render, /' filtrados \(' \+ global\.UI\.formatNumber\(datasetTotal\) \+ ' no total\)'/);
-  assert.match(render, /' filtrados de ' \+ global\.UI\.formatNumber\(datasetTotal\) \+ ' registros no dataset\.'/);
+  assert.match(render, /' filtrados \(' \+ UI\.formatNumber\(datasetTotal\) \+ ' no total\)'/);
+  assert.match(render, /' filtrados de ' \+ UI\.formatNumber\(datasetTotal\) \+ ' registros no dataset\.'/);
   assert.match(render, /els\['table-count'\]\.innerText/);
   assert.match(render, /els\['table-count'\]\.title/);
-  assert.doesNotMatch(render, /' de ' \+ global\.UI\.formatNumber\(total\) \+ ' de '/, 'a contagem não repete "de ... de ..."');
+  assert.doesNotMatch(render, /' de ' \+ UI\.formatNumber\(total\) \+ ' de '/, 'a contagem não repete "de ... de ..."');
 });
 
 // ---------------------------------------------------------------------------

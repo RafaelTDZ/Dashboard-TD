@@ -19,9 +19,13 @@ const realSetImmediate = globalThis.setImmediate;
 
 const appSource = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
 const stateSource = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
+const tableSource = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
 
 // Usa o DashboardState real (validação de snapshots) em vez de um stub.
 new Function(stateSource)();
+// table.js é carregado antes de app.js no index.html; aqui fazemos o mesmo
+// para que o app encontre global.DashboardTable ao ser avaliado.
+new Function(tableSource)();
 
 const SNAPSHOT_KEY = 'snapshot';
 

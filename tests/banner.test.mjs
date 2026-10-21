@@ -18,6 +18,11 @@ import test from 'node:test';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const realSetImmediate = globalThis.setImmediate;
 
+// table.js é carregado antes de app.js no index.html; aqui fazemos o mesmo
+// para que o app encontre global.DashboardTable ao ser avaliado.
+const tableSource = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
+new Function(tableSource)();
+
 function createClassList() {
   const names = new Set();
   return {
