@@ -36,7 +36,7 @@
 
 | ID | Prioridade | Achado | Status |
 |---|---|---|---|
-| F1 | 🔴 P0 | Suíte não é portável entre sistemas (CRLF) | `[ ]` |
+| F1 | 🔴 P0 | Suíte não é portável entre sistemas (CRLF) | `[x]` |
 | F2 | 🔴 P0 | “Mais recente vence” ainda usa timestamp do cliente | `[ ]` |
 | F3 | 🟠 P1 | Sem timeout de rede e restauração bloqueante | `[ ]` |
 | F4 | 🟠 P1 | Escrita pública sem autenticação e sem histórico | `[ ]` |
@@ -371,11 +371,16 @@ const normalized = source.replace(/\r\n/g, '\n');
 
 **Critérios de aceite**
 
-- [ ] `git ls-files --eol` mostra `i/lf w/lf` para arquivos de texto
-- [ ] `node --test` → 104/104 no Windows
+- [x] `git ls-files --eol` mostra `i/lf w/lf` para arquivos de texto
+- [x] `node --test` → 104/104 no Windows
 - [ ] `node --test` → 104/104 no Linux
-- [ ] Hash do `vendor/xlsx.full.min.js` confere com o manifesto nos dois sistemas
-- [ ] Nenhum arquivo binário foi alterado pelo `renormalize`
+- [x] Hash do `vendor/xlsx.full.min.js` confere com o manifesto nos dois sistemas
+- [x] Nenhum arquivo binário foi alterado pelo `renormalize`
+
+> Executado em 21/10/2026 no commit `0c05e2f`: suíte 104/104 no Windows; hash LF
+> do SheetJS confirmado (`CC015130…6F41`). O manifesto também precisou corrigir
+> o hash do `vercel-analytics.mjs` (estava com o hash dos bytes CRLF). A
+> validação em Linux fica pendente até o CI da F8.
 
 ---
 
@@ -1007,9 +1012,9 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 
 ### Fase 0 — Preparação
 
-- [ ] Criar branch de trabalho (`chore/estrutura-correcoes`)
-- [ ] Confirmar árvore limpa (exceto `.agents/`)
-- [ ] Rodar `node --test` e registrar o baseline (101/104 no Windows)
+- [x] Criar branch de trabalho (`chore/estrutura-correcoes`)
+- [x] Confirmar árvore limpa (exceto `.agents/`)
+- [x] Rodar `node --test` e registrar o baseline (101/104 no Windows)
 - [ ] Fotografar/validar visualmente o dashboard atual
 
 ### Fase 1 — Confiabilidade (P0)
@@ -1072,6 +1077,8 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 |---|---|---|---|---|---|
 | 21/10/2026 | — | — | Análise estrutural concluída (10 achados: F1–F8 + F9/F10 da auditoria) | — | 104 testes: 101 OK / 3 CRLF; nenhum arquivo de aplicação alterado |
 | 21/10/2026 | Auditoria | 34 itens originais | 23 confirmados, 8 parciais e 3 pendentes | — | Supabase read-only; nenhum dado alterado |
+| 21/10/2026 | Fase 0 | preparação | branch `chore/estrutura-correcoes`; baseline 101/104 | — | árvore limpa exceto `.agents/`; inspeção visual ainda pendente |
+| 21/10/2026 | Fase 1 | F1 | `.gitattributes`, normalização LF e teste SQL EOL-safe | subagente F1 | commit `0c05e2f`; 104/104 no Windows; manifesto do analytics corrigido |
 | | | | | | |
 | | | | | | |
 
