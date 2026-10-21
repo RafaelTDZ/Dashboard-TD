@@ -42,7 +42,7 @@
 | F4 | 🟠 P1 | Escrita pública sem autenticação e sem histórico | `[x]` |
 | F5 | 🟠 P1 | `app.js` monolítico e acoplamento por globals | `[x]` |
 | F6 | 🟠 P1 | Snapshot inteiro e limite de escala | `[ ]` |
-| F7 | 🟡 P2 | Tailwind em runtime e CSP permissiva | `[ ]` |
+| F7 | 🟡 P2 | Tailwind em runtime e CSP permissiva | `[x]` |
 | F8 | 🟡 P2 | Higiene de engenharia e documentação | `[ ]` |
 | F9 | 🟠 P1 | Resumo do dataset e total não persistem no Dashboard | `[x]` |
 | F10 | 🟡 P2 | Cobertura de testes não comprova T3/T4/M5/B6 | `[ ]` |
@@ -737,7 +737,7 @@ O split foi feito preservando IIFE/globals e a ordem dos scripts, sem build:
 
 | | |
 |---|---|
-| **Arquivos** | `index.html:12-13` · `vendor/tailwind.js` · `assets/css/styles.css` |
+| **Arquivos** | `index.html` · `tailwind.config.cjs` · `assets/css/tailwind.src.css` · `assets/css/tailwind.css` · `assets/css/styles.css` |
 | **Esforço** | 🟡 ~4-6 h |
 | **Risco** | Médio (regressão visual) |
 
@@ -773,14 +773,34 @@ content: ['./index.html', './assets/js/**/*.js']
 4. Restringir `connect-src` ao host exato do projeto Supabase.
 5. Migrar temas para CSS variables em vez de overrides por classe.
 
+**Execução adotada**
+
+O Tailwind 3.4.16 foi compilado uma vez e o CSS passou a ser versionado, sem
+build no deploy:
+
+1. `tailwind.config.cjs` reproduz o tema (dark mode por classe, cores `brand` e
+   `dark*`) e varre `index.html` + `assets/js/**/*.js`.
+2. `assets/css/tailwind.css` (19,4 KB minificado) é carregado antes de
+   `styles.css`, preservando a cascata anterior. Para regenerar:
+   `npm run build:css` (usa `npx tailwindcss@3.4.16`, versão fixa).
+3. `vendor/tailwind.js` (440,6 KB) e o `tailwind.config` inline foram removidos;
+   o `vendor/manifest.json` não lista mais o Play CDN.
+4. A CSP ficou `script-src 'self'` e `style-src 'self'`, sem `'unsafe-inline'`
+   nem `'unsafe-eval'`; `connect-src` aponta só para
+   `https://bsczvemaqvladupmdpgl.supabase.co`.
+5. O README documenta a geração do CSS e a ausência de build em runtime.
+6. Os overrides de tema de `styles.css` continuam usando `[class~="..."]`; as
+   classes correspondentes estão no CSS compilado, mas novas classes dinâmicas
+   exigem regeneração.
+
 **Critérios de aceite**
 
-- [ ] Tailwind compilado e versionado (ou gerado no deploy)
-- [ ] Nenhum aviso de Play CDN no console
-- [ ] CSP sem `unsafe-eval`
-- [ ] `connect-src` restrito ao projeto correto
-- [ ] Comparação visual antes/depois (screenshot)
-- [ ] 104/104 testes verdes
+- [x] Tailwind compilado e versionado (`assets/css/tailwind.css`, 19,4 KB)
+- [x] Nenhum aviso de Play CDN no console (console limpo)
+- [x] CSP sem `unsafe-eval` (e também sem `unsafe-inline` em `script-src`)
+- [x] `connect-src` restrito ao projeto correto
+- [x] Comparação visual antes/depois (capturas 1400×1200 idênticas byte a byte)
+- [x] 115/115 testes verdes
 
 ---
 
@@ -1102,9 +1122,9 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 |---|---|---|---|
 | D1 | Modelo de escrita (**F4**) | A: público documentado · B: Auth · C: Edge Function | ✅ A (histórico + rollback) |
 | D2 | Escala do snapshot (**F6**) | A: manter · B: Storage · C: normalizado · D: híbrido | ⏸️ aberto |
-| D3 | Tailwind (**F7**) | A: compilar agora · B: manter runtime | ⏸️ aberto |
+| D3 | Tailwind (**F7**) | A: compilar agora · B: manter runtime | ✅ A (CSS estático) |
 | D4 | `.agents/` | A: versionar · B: ignorar | ⏸️ aberto |
-| D5 | Restrição “sem build” | A: manter (CSS gerado versionado) · B: permitir build no deploy | ⏸️ aberto |
+| D5 | Restrição “sem build” | A: manter (CSS gerado versionado) · B: permitir build no deploy | ✅ A (geração manual versionada) |
 
 ---
 
@@ -1139,6 +1159,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Fase 3 | F5 passo 4 | upload, parse, comparação e relatório em `import.js` | subagente F5 | commit `b084e52`; 113/113; `app.js` 1.232→898 |
 | 21/10/2026 | Fase 3 | F5 passo 5 | normalização, filtros, view e snapshot em módulos | subagente F5 | commit `abe373a`; 113/113; `app.js` 898→368; smoke no navegador local |
 | 21/10/2026 | Fase 3 | F4 | opção A + histórico append-only + rollback administrativo | subagente F4 | commit `2e98b33`; migration `20261021120000_excel_imports_history.sql` aplicada no remoto (`20261021163449`); 114/114; trigger validado em transação revertida |
+| 21/10/2026 | Fase 3 | F7 | Tailwind compilado + CSP sem `unsafe-*` + `connect-src` exato | subagente F7 | commit `48f77db`; 115/115; capturas 1400×1200 idênticas byte a byte; console limpo |
 | | | | | | |
 | | | | | | |
 
