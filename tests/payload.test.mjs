@@ -17,6 +17,26 @@ const realSetImmediate = globalThis.setImmediate;
 
 const appSource = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
 const stateSource = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
+const normalizeSource = readFileSync(join(root, 'assets', 'js', 'normalize.js'), 'utf8');
+const filtersSource = readFileSync(join(root, 'assets', 'js', 'filters.js'), 'utf8');
+const viewSource = readFileSync(join(root, 'assets', 'js', 'view.js'), 'utf8');
+const snapshotSource = readFileSync(join(root, 'assets', 'js', 'snapshot.js'), 'utf8');
+const tableSource = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
+const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
+const persistenceSource = readFileSync(join(root, 'assets', 'js', 'persistence.js'), 'utf8');
+const importSource = readFileSync(join(root, 'assets', 'js', 'import.js'), 'utf8');
+
+// normalize.js, filters.js, view.js, snapshot.js, table.js, banner.js,
+// persistence.js e import.js são carregados antes de app.js no index.html;
+// aqui fazemos o mesmo para que o app encontre os módulos ao ser avaliado.
+new Function(normalizeSource)();
+new Function(filtersSource)();
+new Function(viewSource)();
+new Function(snapshotSource)();
+new Function(tableSource)();
+new Function(bannerSource)();
+new Function(persistenceSource)();
+new Function(importSource)();
 
 function loadState() {
   const context = { console };
@@ -366,6 +386,34 @@ test('o payload persistido é menor que o registro em memória', async () => {
   }
 });
 
+// T3: além da queda relativa acima, o payload tem um teto absoluto. A queda
+// percentual sozinha não impede que um campo novo e pesado infle o snapshot
+// sem chamar atenção. O orçamento cobre o caso de uso real (o dataset de
+// referência tem ~1,9 mil registros), arredondado para 2.000.
+//
+// 2,5 MB decimais (2.500.000 bytes) é deliberadamente folgado: este harness
+// grava 694.677 bytes para 2.000 registros (medido em 21/10/2026), mas o
+// snapshot real de ~1,9 mil registros chega a ~2,2 MB porque cada processo tem
+// muito mais campos preenchidos. O teto de 2,5 MB cobre o dataset real com
+// margem e ainda pega regressões grosseiras — por exemplo, o retorno do
+// _search ou de campos vazios ao payload — sem quebrar a cada campo novo
+// legítimo do parser.
+const PAYLOAD_BUDGET_BYTES = 2_500_000;
+
+test('T3: o payload de 2.000 registros cabe no orçamento absoluto de bytes', async () => {
+  const { saves, restore } = await importFile(makeRecords(2000));
+  try {
+    assert.equal(saves.length, 1, 'a importação grava exatamente um snapshot no Supabase');
+    const payloadSize = JSON.stringify(saves[0].records).length;
+    assert.ok(
+      payloadSize <= PAYLOAD_BUDGET_BYTES,
+      `o payload de 2.000 registros tem ${payloadSize} bytes e excedeu o orçamento absoluto de ${PAYLOAD_BUDGET_BYTES} bytes`
+    );
+  } finally {
+    restore();
+  }
+});
+
 test('os dados em memória continuam com o índice de busca', async () => {
   const records = makeRecords(3);
   const { document, restore } = await importFile(records);
@@ -399,6 +447,32 @@ test('a comparação ignora _search, sourceRowNumber e campos vazios', () => {
   const changed = DashboardState.compareRecords([oldRow], [Object.assign({}, newRecord, { valor: 99 })]);
   assert.equal(changed.updatedCount, 1, 'uma mudança real continua sendo detectada');
   assert.equal(changed.unchangedCount, 0);
+});
+
+test('B6: campo novo não vazio do parser conta como atualização; campo vazio é ignorado', () => {
+  // Decisão de produto (F10/B6): o fingerprint inclui todas as chaves não
+  // vazias. Um campo novo que o parser passou a preencher é uma atualização
+  // real do processo e deve substituir o snapshot; um campo novo vazio
+  // (null, '' ou []) não muda nada e é ignorado — é o que mantém o formato
+  // enxuto (M1) comparável com a linha antiga do banco.
+  const oldRow = { operacao: 'IMP-1', valor: 10 };
+
+  const newField = DashboardState.compareRecords([oldRow], [{ operacao: 'IMP-1', valor: 10, novoCampo: 'x' }]);
+  assert.equal(newField.comparable, true);
+  assert.equal(newField.updatedCount, 1, 'campo novo não vazio é uma atualização');
+  assert.equal(newField.unchangedCount, 0);
+
+  const emptyFields = DashboardState.compareRecords([oldRow], [{
+    operacao: 'IMP-1', valor: 10, novoCampo: '', outroCampo: null, listaVazia: []
+  }]);
+  assert.equal(emptyFields.updatedCount, 0, 'campo vazio não pode marcar o processo como atualizado');
+  assert.equal(emptyFields.unchangedCount, 1);
+
+  const newFieldAndRealChange = DashboardState.compareRecords([oldRow], [{
+    operacao: 'IMP-1', valor: 99, novoCampo: 'x'
+  }]);
+  assert.equal(newFieldAndRealChange.updatedCount, 1, 'campo novo com mudança real continua atualização');
+  assert.equal(newFieldAndRealChange.unchangedCount, 0);
 });
 
 test('CSV: números negativos saem como número e textos continuam protegidos', async () => {

@@ -10,17 +10,34 @@ import { inject } from '../../vendor/vercel-analytics.mjs';
 //   2. hosts padrão da Vercel      -> injeta direto, sem round-trip;
 //   3. domínio próprio na Vercel   -> um HEAD barato decide se o script existe.
 const INSIGHTS_PATH = '/_vercel/insights/script.js';
+// O HEAD é só uma checagem de existência: não pode atrasar nem travar a
+// inicialização do analytics se o host estiver lento.
+const INSIGHTS_TIMEOUT_MS = 5000;
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', '[::1]'];
 
 function isLocalHost(hostname) {
   return LOCAL_HOSTS.indexOf(hostname) > -1 || hostname.endsWith('.local');
 }
 
+function headWithTimeout(url, timeoutMs) {
+  if (typeof AbortController === 'undefined') return fetch(url, { method: 'HEAD' });
+  const controller = new AbortController();
+  const timeout = timeoutMs || INSIGHTS_TIMEOUT_MS;
+  const timer = setTimeout(function () { controller.abort(); }, timeout);
+  return fetch(url, { method: 'HEAD', signal: controller.signal }).then(function (response) {
+    clearTimeout(timer);
+    return response;
+  }, function (error) {
+    clearTimeout(timer);
+    throw error;
+  });
+}
+
 function shouldInjectAnalytics() {
   if (typeof location === 'undefined' || !location.hostname) return Promise.resolve(false);
   if (isLocalHost(location.hostname)) return Promise.resolve(false);
   if (location.hostname.endsWith('.vercel.app')) return Promise.resolve(true);
-  return fetch(INSIGHTS_PATH, { method: 'HEAD' })
+  return headWithTimeout(INSIGHTS_PATH, INSIGHTS_TIMEOUT_MS)
     .then(function (response) { return response.ok; })
     .catch(function () { return false; });
 }

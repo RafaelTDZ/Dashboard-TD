@@ -65,7 +65,7 @@ function libraryNamed(pattern) {
 test('o manifesto de dependências é um JSON válido e tem a nota de origem', () => {
   assert.equal(typeof manifest, 'object');
   assert.ok(Array.isArray(manifest.libraries), 'a chave libraries precisa ser uma lista');
-  assert.ok(manifest.libraries.length >= 6, 'todas as bibliotecas vendorizadas precisam estar listadas');
+  assert.ok(manifest.libraries.length >= 5, 'todas as bibliotecas vendorizadas precisam estar listadas');
   assert.equal(typeof manifest.note, 'string');
   assert.ok(manifest.note.length > 0, 'a nota do manifesto não pode estar vazia');
   assert.equal(manifest.strategy, 'offline-vendored');
@@ -99,20 +99,20 @@ test('a versão embutida do SheetJS é >= 0.20.2 e bate com o manifesto', () => 
 });
 
 test('a versão do SheetJS usada na URL de cache-busting bate com o manifesto', () => {
-  // O app.js carrega a lib sob demanda com ?v=<versão> na URL. Se a versão
-  // do manifesto mudar e a constante do app.js não, o navegador passa a
+  // O import.js carrega a lib sob demanda com ?v=<versão> na URL. Se a versão
+  // do manifesto mudar e a constante do import.js não, o navegador passa a
   // reaproveitar do cache a versão antiga (e possivelmente truncada) da lib.
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
-  const declared = app.match(/XLSX_LIB_VERSION\s*=\s*['"]([^'"]+)['"]/);
-  assert.ok(declared, 'app.js precisa declarar XLSX_LIB_VERSION');
+  const importer = readFileSync(join(root, 'assets', 'js', 'import.js'), 'utf8');
+  const declared = importer.match(/XLSX_LIB_VERSION\s*=\s*['"]([^'"]+)['"]/);
+  assert.ok(declared, 'import.js precisa declarar XLSX_LIB_VERSION');
 
   const library = libraryNamed(/xlsx\.full\.min\.js$/);
   assert.ok(library, 'o SheetJS precisa estar no manifesto');
   assert.equal(declared[1], library.version, 'XLSX_LIB_VERSION precisa acompanhar a versão do manifesto');
 
   // E a URL precisa realmente usar a constante (não uma string fixa).
-  assert.match(app, /vendor\/xlsx\.full\.min\.js\?v=/);
-  assert.match(app, /XLSX_LIB_VERSION/);
+  assert.match(importer, /vendor\/xlsx\.full\.min\.js\?v=/);
+  assert.match(importer, /XLSX_LIB_VERSION/);
 });
 
 test('o sha256 de cada entrada do manifesto confere com o arquivo em disco', () => {
@@ -146,16 +146,25 @@ test('toda entrada do diretório vendor/ tem registro no manifesto', () => {
 });
 
 test('o manifesto registra as libs vendorizadas com versão real (B11)', () => {
-  // O manifesto não pode mais esconder a versão do Tailwind.
-  const tailwind = libraryNamed(/tailwind\.js$/);
-  assert.ok(tailwind, 'o Tailwind vendorizado precisa estar no manifesto');
-  assert.notEqual(tailwind.version, 'unknown', 'a versão do Tailwind não pode ser "unknown"');
-  assert.match(tailwind.version, /^\d+\.\d+\.\d+$/);
+  // O Tailwind Play CDN foi substituído por CSS compilado e não é mais
+  // vendorizado; o manifesto não deve voltar a apontar para ele.
+  assert.equal(libraryNamed(/tailwind\.js$/), undefined, 'o Tailwind Play CDN não deve voltar ao vendor/');
 
   // A analytics do Vercel (que não era registrada) precisa estar no manifesto.
   const analytics = libraryNamed(/vercel-analytics\.mjs$/);
   assert.ok(analytics, 'a analytics do Vercel precisa estar no manifesto');
   assert.match(analytics.version, /^\d+\.\d+\.\d+$/);
+
+  // B16 — nenhuma entrada pode declarar a versão como "unknown": a fonte
+  // vendorizada é a release v12 do Google Fonts (os quatro woff2 conferem
+  // byte a byte com fonts.gstatic.com/s/plusjakartasans/v12/).
+  for (const library of manifest.libraries) {
+    assert.ok(library.version && library.version !== 'unknown',
+      library.name + ' precisa de uma versão real no manifesto');
+  }
+  const font = libraryNamed(/plus-jakarta-sans\.css$/);
+  assert.ok(font, 'a fonte precisa estar no manifesto');
+  assert.equal(font.version, 'v12', 'a fonte vendorizada é a release v12 do Google Fonts');
 
   // E nenhuma entrada pode apontar para fora do diretório vendor/.
   for (const library of manifest.libraries) {
@@ -172,8 +181,8 @@ test('as bibliotecas vendorizadas são as mesmas que o index.html usa', () => {
     assert.equal(existsSync(join(root, reference)), true, reference);
   }
   // O carregador sob demanda do SheetJS aponta para o bundle vendorizado.
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
-  assert.match(app, /vendor\/xlsx\.full\.min\.js/);
+  const importer = readFileSync(join(root, 'assets', 'js', 'import.js'), 'utf8');
+  assert.match(importer, /vendor\/xlsx\.full\.min\.js/);
   assert.equal(libraryNamed(/xlsx\.full\.min\.js$/).entry, 'vendor/xlsx.full.min.js');
 });
 

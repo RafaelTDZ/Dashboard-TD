@@ -1,0 +1,13 @@
+# Dependências locais (o dashboard não precisa de npm install para rodar)
+node_modules/
+
+# Metadados de deploy
+.vercel/
+
+# Ferramentas locais de agentes (decisão D4: não versionar)
+.agents/
+
+# Logs e artefatos de sistema
+*.log
+.DS_Store
+Thumbs.db

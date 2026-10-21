@@ -9,12 +9,33 @@ import test from 'node:test';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const htmlPath = join(root, 'index.html');
 const html = readFileSync(htmlPath, 'utf8');
+const normalizeSource = readFileSync(join(root, 'assets', 'js', 'normalize.js'), 'utf8');
+const filtersSource = readFileSync(join(root, 'assets', 'js', 'filters.js'), 'utf8');
+const viewSource = readFileSync(join(root, 'assets', 'js', 'view.js'), 'utf8');
+const snapshotSource = readFileSync(join(root, 'assets', 'js', 'snapshot.js'), 'utf8');
+const table = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
+const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
+const importSource = readFileSync(join(root, 'assets', 'js', 'import.js'), 'utf8');
 
 function jsFiles(directory) {
   return readdirSync(directory, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith('.js'))
     .map((entry) => join(directory, entry.name));
 }
+
+// Remove comentários antes de varrer o SQL executável: as migrations
+// documentam comandos antigos no texto e eles não podem ser confundidos com
+// código. O fim de linha é normalizado porque o checkout no Windows pode vir
+// em CRLF e `--.*$` não casaria com o `\r` residual.
+const sqlCode = (source) => source
+  .replace(/\r\n/g, '\n')
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .split('\n')
+  .map((line) => line.replace(/--.*$/, ''))
+  .join('\n');
+
+const deletesWithoutWhere = (source) => [...sqlCode(source).matchAll(/delete\s+from\s+([\s\S]*?);/gi)]
+  .filter((match) => !/\bwhere\b/i.test(match[1]));
 
 test('todos os scripts JavaScript têm sintaxe válida', () => {
   const files = jsFiles(join(root, 'assets', 'js'));
@@ -58,13 +79,12 @@ test('Worker e carregamento sob demanda apontam para bibliotecas locais', () => 
   const worker = readFileSync(join(root, 'assets', 'js', 'worker.js'), 'utf8');
   assert.equal(existsSync(resolve(root, 'assets', 'js', '../../vendor/xlsx.full.min.js')), true);
   assert.match(worker, /importScripts\('\.\.\/\.\.\/vendor\/xlsx\.full\.min\.js', 'etl\.js'\)/);
-  assert.match(readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8'), /vendor\/xlsx\.full\.min\.js/);
+  assert.match(importSource, /vendor\/xlsx\.full\.min\.js/);
   assert.doesNotMatch(html, /<script[^>]+vendor\/xlsx\.full\.min\.js/);
 });
 
 test('importador preserva campos auxiliares e observações da planilha', () => {
   const etl = readFileSync(join(root, 'assets', 'js', 'etl.js'), 'utf8');
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   assert.match(etl, /parseCommentsSheet/);
   assert.match(etl, /estimativaEmb/);
   assert.match(etl, /modalidade/);
@@ -75,10 +95,12 @@ test('importador preserva campos auxiliares e observações da planilha', () => 
   assert.match(etl, /valorMoeda/);
   assert.match(etl, /extractOperationAcronym/);
   assert.match(etl, /raw: false/);
-  assert.match(app, /commentCount/);
-  assert.match(app, /Comentários;Linha Excel/);
-  assert.match(app, /Valor informado;Moeda;Valor USD/);
-  assert.match(app, /valorUSD/);
+  // A normalização dos registros vive em normalize.js; o commentCount do
+  // snapshot restaurado é montado em snapshot.js.
+  assert.match(snapshotSource, /commentCount/);
+  assert.match(table, /Comentários;Linha Excel/);
+  assert.match(table, /Valor informado;Moeda;Valor USD/);
+  assert.match(normalizeSource, /valorUSD/);
   assert.match(readFileSync(join(root, 'assets', 'js', 'ui.js'), 'utf8'), /formatCurrencyFull/);
 });
 
@@ -99,9 +121,9 @@ test('configuração inline e estrutura de acessibilidade permanecem válidas', 
   assert.match(charts, /options\.isDemo === false/);
   const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   assert.match(app, /isDemo: state\.isDemo/);
-  assert.match(app, /'monthly-year': 'ano'/);
-  assert.match(app, /filters\.ano/);
-  assert.match(app, /getMonthlyReferenceYear/);
+  assert.match(filtersSource, /'monthly-year': 'ano'/);
+  assert.match(filtersSource, /filters\.ano/);
+  assert.match(filtersSource, /getMonthlyReferenceYear/);
   assert.match(charts, /monthlyYear/);
   assert.match(html, /id="monthly-year"/);
   for (const chart of ['analistas', 'mensal', 'origem', 'destino', 'incoterm', 'agentes', 'operacao-siglas']) {
@@ -112,17 +134,16 @@ test('configuração inline e estrutura de acessibilidade permanecem válidas', 
 });
 
 test('filtro de ano usa o ano corrente como padrão e não oculta registros sem ETA/ETS', () => {
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   const html = readFileSync(join(root, 'index.html'), 'utf8');
   const state = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
-  assert.match(app, /selectedYear != null && getMonthlyReferenceYear/);
-  assert.doesNotMatch(app, /if \(!state\.isDemo\) return false/);
+  assert.match(filtersSource, /selectedYear != null && getMonthlyReferenceYear/);
+  assert.doesNotMatch(filtersSource, /if \(!state\.isDemo\) return false/);
   // "Ano mais recente" (LATEST) foi removido: o padrão do filtro é o ano corrente.
-  assert.doesNotMatch(app, /'LATEST'/);
+  assert.doesNotMatch(filtersSource, /'LATEST'/);
   assert.doesNotMatch(html, /value="LATEST"/);
   assert.match(state, /ano: String\(new Date\(\)\.getFullYear\(\)\)/);
   // Se o ano corrente não existir nos dados, o filtro cai para "Todos os anos".
-  assert.match(app, /values\.indexOf\(String\(current\)\) > -1 \? String\(current\) : 'ALL'/);
+  assert.match(filtersSource, /values\.indexOf\(String\(current\)\) > -1 \? String\(current\) : 'ALL'/);
 });
 
 test('filtros dimensionam pelo conteúdo (sem largura fixa que corta texto)', () => {
@@ -142,26 +163,23 @@ test('tooltips exibem o nome da categoria uma única vez e só sob o cursor', ()
 });
 
 test('filtro de mês exibe o nome do mês em vez do número', () => {
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
-  assert.match(app, /global\.ETL\.monthName\(month\)/);
-  assert.doesNotMatch(app, /'Mês ' \+ month/);
+  assert.match(filtersSource, /ETL\.monthName\(month\)/);
+  assert.doesNotMatch(filtersSource, /'Mês ' \+ month/);
   const etl = readFileSync(join(root, 'assets', 'js', 'etl.js'), 'utf8');
   assert.match(etl, /'Novembro'/);
   assert.match(etl, /monthName: monthName/);
 });
 
 test('filtro e coluna de mês usam a mesma referência de data (ETA/ETS)', () => {
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
-  assert.match(app, /function getMonthlyReferenceMonth/);
-  assert.match(app, /state\.dataset\.map\(getMonthlyReferenceMonth\)/);
+  assert.match(normalizeSource, /function getMonthlyReferenceMonth/);
+  assert.match(filtersSource, /state\.dataset\.map\(getMonthlyReferenceMonth\)/);
   // Multi-seleção: o registro passa quando o mês dele está entre os marcados.
-  assert.match(app, /selectedMonths\.length && selectedMonths\.indexOf\(String\(getMonthlyReferenceMonth\(item\)\)\) === -1/);
-  assert.doesNotMatch(app, /String\(item\.month\) !== filters\.mes/);
-  assert.match(app, /monthName\(getMonthlyReferenceMonth\(item\)\)/);
+  assert.match(filtersSource, /selectedMonths\.length && selectedMonths\.indexOf\(String\(getMonthlyReferenceMonth\(item\)\)\) === -1/);
+  assert.doesNotMatch(filtersSource, /String\(item\.month\) !== filters\.mes/);
+  assert.match(table, /monthName\(getMonthlyReferenceMonth\(item\)\)/);
 });
 
 test('filtro de mês permite marcar vários meses (multi-seleção)', () => {
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
   const html = readFileSync(join(root, 'index.html'), 'utf8');
   const state = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
   const styles = readFileSync(join(root, 'assets', 'css', 'styles.css'), 'utf8');
@@ -169,12 +187,12 @@ test('filtro de mês permite marcar vários meses (multi-seleção)', () => {
   assert.match(html, /id="filter-mes-toggle"[^>]+aria-expanded="false"/);
   assert.match(html, /id="filter-mes-menu"[^>]*\shidden[\s>]/);
   assert.match(html, /id="filter-mes-list"/);
-  assert.match(app, /function toggleMonth/);
-  assert.match(app, /function toggleAllMonths/);
-  assert.match(app, /state\.filters\.mes = effective\.length === 0 \? 'NONE' : \(effective\.length === available\.length \? \[\] : effective\)/);
+  assert.match(filtersSource, /function toggleMonth/);
+  assert.match(filtersSource, /function toggleAllMonths/);
+  assert.match(filtersSource, /state\.filters\.mes = effective\.length === 0 \? 'NONE' : \(effective\.length === available\.length \? \[\] : effective\)/);
   // Nenhum mês marcado = dashboard vazio; o interruptor alterna tudo/nenhum.
-  assert.match(app, /getMonthFilterMode\(\) === 'none'/);
-  assert.match(app, /Selecionar meses/);
+  assert.match(filtersSource, /getMonthFilterMode\(\) === 'none'/);
+  assert.match(filtersSource, /Selecionar meses/);
   // O estado guarda a lista marcada; lista vazia = todos os meses.
   assert.match(state, /mes: \[\]/);
   assert.match(state, /Array\.isArray\(value\)/);
@@ -185,7 +203,7 @@ test('filtro de mês permite marcar vários meses (multi-seleção)', () => {
   // só evita estourar a janela em telas muito baixas).
   assert.match(styles, /max-height: min\(22\.5rem, calc\(100vh - 7rem\)\)/);
   // Sem espaço abaixo do botão, o menu abre para cima em vez de sair da tela.
-  assert.match(app, /ui-month-menu-up/);
+  assert.match(filtersSource, /ui-month-menu-up/);
   assert.match(styles, /\.ui-month-menu-up \{[\s\S]*?bottom: calc\(100% \+ 0\.35rem\)/);
   // As caixinhas do menu não herdam a largura/flex dos selects do painel.
   assert.match(styles, /\.ui-filter-panel input:not\(\[type="checkbox"\]\)/);
@@ -209,10 +227,9 @@ test('listas dos selects abrem no estilo do menu de mês (sem azul nativo)', () 
 });
 
 test('coluna Reg DI ordena por data cronológica e não por texto', () => {
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
-  assert.match(app, /case 'regDi':/);
-  assert.match(app, /regDiMatch\[3\]\) \* 10000 \+ Number\(regDiMatch\[2\]\) \* 100 \+ Number\(regDiMatch\[1\]\)/);
-  assert.doesNotMatch(app, /case 'regDi': return String\(item\.regDi/);
+  assert.match(filtersSource, /case 'regDi':/);
+  assert.match(filtersSource, /regDiMatch\[3\]\) \* 10000 \+ Number\(regDiMatch\[2\]\) \* 100 \+ Number\(regDiMatch\[1\]\)/);
+  assert.doesNotMatch(filtersSource, /case 'regDi': return String\(item\.regDi/);
 });
 
 test('média mensal usa janela móvel de 12 meses até o mês atual', () => {
@@ -251,17 +268,18 @@ test('seletor de estilo permite alternar entre o visual novo e o antigo', () => 
   assert.match(styles, /background: #18181b/);
   assert.doesNotMatch(styles, /#070b18/);
   assert.match(app, /uiStyle: 'classic'/);
-  assert.match(app, /function applyVisualStyle/);
-  assert.match(app, /global\.Charts\.setStyle/);
+  assert.match(viewSource, /function applyVisualStyle/);
+  assert.match(viewSource, /Charts\.setStyle\(nextStyle\)/);
   assert.match(charts, /COLOR_PALETTES/);
   assert.match(charts, /classic: \{\s+brand: '#3b82f6'/);
   assert.match(charts, /text: '#71717a'/);
   assert.match(charts, /global\.Charts = \{ init: init, render: render, setStyle: setStyle \}/);
-  assert.doesNotMatch(app, /localStorage|sessionStorage/);
+  // Nenhum dos módulos da camada de apresentação usa armazenamento próprio:
+  // a persistência continua centralizada em persistence.js.
+  assert.doesNotMatch(app + normalizeSource + filtersSource + viewSource + snapshotSource, /localStorage|sessionStorage/);
 });
 test('card de status é transitório com arquivo e persistente no estado vazio', () => {
   const styles = readFileSync(join(root, 'assets', 'css', 'styles.css'), 'utf8');
-  const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
 
   // Começa escondido: o card não pode ficar visível antes de o app decidir.
   assert.match(html, /id="status-banner"[^>]*\shidden[\s>]/);
@@ -272,37 +290,37 @@ test('card de status é transitório com arquivo e persistente no estado vazio',
   assert.match(styles, /#status-banner\.is-fading-out\s*\{[^}]*opacity: 0;/);
 
   // refresh()/restoreState() atualizam o texto do card, mas nunca a visibilidade.
-  const updateBanner = app.match(/function updateBanner\(\)\s*\{([\s\S]*?)\n  \}/)[1];
+  const updateBanner = bannerSource.match(/function updateBanner\(\)\s*\{([\s\S]*?)\n    \}/)[1];
   assert.doesNotMatch(updateBanner, /hidden|classList/);
 
   // O texto do resumo mora no #banner-text (o próprio card de status).
-  assert.match(app, /function setBannerText\(html\)/);
-  const setBannerText = app.match(/function setBannerText\(html\)\s*\{([\s\S]*?)\n  \}/)[1];
+  assert.match(bannerSource, /function setBannerText\(html\)/);
+  const setBannerText = bannerSource.match(/function setBannerText\(html\)\s*\{([\s\S]*?)\n    \}/)[1];
   assert.match(setBannerText, /els\['banner-text'\]/);
 
   // A importação revela o card em modo transitório.
-  const revealCallSites = [...app.matchAll(/^\s+showTransientUpdateBanner\(\);/gm)];
+  const revealCallSites = [...importSource.matchAll(/^\s+showTransientUpdateBanner\(\);/gm)];
   assert.equal(revealCallSites.length, 1);
-  const upload = app.match(/function handleFileUpload\(event\)\s*\{([\s\S]*?)\r?\n  \}\r?\n/)[1];
-  const applyImport = app.match(/function applyImportedDataset\([^)]*\)\s*\{([\s\S]*?)\r?\n  \}\r?\n/)[1];
+  const upload = importSource.match(/function handleFileUpload\(event\)\s*\{([\s\S]*?)\r?\n    \}\r?\n/)[1];
+  const applyImport = importSource.match(/function applyImportedDataset\([^)]*\)\s*\{([\s\S]*?)\r?\n    \}\r?\n/)[1];
   assert.ok(
     /showTransientUpdateBanner\(\);/.test(upload) || /showTransientUpdateBanner\(\);/.test(applyImport),
     'o fluxo de upload deve revelar o card de status'
   );
 
   // E ele volta a se esconder sozinho, fechando de verdade via hideStatusBanner().
-  assert.match(app, /var STATUS_BANNER_VISIBLE_MS = \d+;/);
-  const show = app.match(/function showStatusBanner\(transient\)\s*\{([\s\S]*?)\n  \}/)[1];
+  assert.match(bannerSource, /var STATUS_BANNER_VISIBLE_MS = \d+;/);
+  const show = bannerSource.match(/function showStatusBanner\(transient\)\s*\{([\s\S]*?)\n    \}/)[1];
   assert.match(show, /setTimeout/);
   assert.match(show, /hideStatusBanner\(\)/);
   assert.match(show, /if \(!transient\) return;/, 'sem timer quando o card deve ficar visível');
-  const hide = app.match(/function hideStatusBanner\(\)\s*\{([\s\S]*?)\n  \}/)[1];
+  const hide = bannerSource.match(/function hideStatusBanner\(\)\s*\{([\s\S]*?)\n    \}/)[1];
   assert.match(hide, /clearStatusBannerTimers\(banner\)/);
   assert.match(hide, /banner\.hidden = true/);
 
   // Falha fatal de init mostra o card sem destruir os filhos usados por updateBanner().
-  assert.match(app, /function showStatusBannerError\(message\)/);
-  assert.doesNotMatch(app, /banner\.textContent = error\.message/);
+  assert.match(bannerSource, /function showStatusBannerError\(message\)/);
+  assert.doesNotMatch(bannerSource, /banner\.textContent = error\.message/);
 });
 
 
@@ -326,7 +344,7 @@ test('migrations espelham o histórico remoto e mantêm um único snapshot', () 
     .map((name) => name.match(/^(\d{14})_/))
     .filter(Boolean)
     .map((match) => match[1]);
-  assert.deepEqual(versions, ['20261009142126', '20261019141213', '20261020120000']);
+  assert.deepEqual(versions, ['20261009142126', '20261019141213', '20261020120000', '20261021120000', '20261021150000']);
 });
 
 test('migração de endurecimento fecha o bypass de privilégios e o DELETE sem WHERE', () => {
@@ -343,15 +361,9 @@ test('migração de endurecimento fecha o bypass de privilégios e o DELETE sem 
   // "DELETE requires a WHERE clause" (SQLSTATE 21000). A migration nova
   // corrige isso com `where id in (select id from public.excel_imports)`,
   // que apaga exatamente as mesmas linhas.
-  // Os comentários são removidos antes da varredura: o SQL documenta o
-  // comando antigo no texto e não pode ser confundido com código executável.
-  const sqlCode = (source) => source
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .split('\n')
-    .map((line) => line.replace(/--.*$/, ''))
-    .join('\n');
-  const deletesWithoutWhere = (source) => [...sqlCode(source).matchAll(/delete\s+from\s+public\.excel_imports([\s\S]*?);/gi)]
-    .filter((match) => !/\bwhere\b/i.test(match[1]));
+  // Os comentários são removidos pelo helper antes da varredura: o SQL
+  // documenta o comando antigo no texto e não pode ser confundido com código
+  // executável.
   assert.equal(deletesWithoutWhere(harden).length, 0, 'a migration nova não pode ter DELETE sem WHERE');
   assert.match(harden, /delete from public\.excel_imports\s+where id in \(select id from public\.excel_imports\);/i);
 
@@ -379,4 +391,90 @@ test('migração de endurecimento fecha o bypass de privilégios e o DELETE sem 
   assert.match(harden, /create or replace function public\.touch_updated_at\(\)/);
   assert.match(harden, /new\.updated_at := now\(\);/);
   assert.match(harden, /create trigger excel_imports_touch_updated_at\s+before update on public\.excel_imports/);
+});
+
+test('F4: histórico append-only e rollback', () => {
+  const history = readFileSync(join(root, 'supabase', 'migrations', '20261021120000_excel_imports_history.sql'), 'utf8');
+  const readme = readFileSync(join(root, 'README.md'), 'utf8');
+  const code = sqlCode(history);
+
+  // Tabela própria: NÃO pode usar `like ... including all`, senão o índice
+  // único singleton da tabela corrente seria copiado para o histórico e
+  // impediria mais de uma linha.
+  assert.match(code, /create table if not exists public\.excel_imports_history\s*\(/);
+  assert.doesNotMatch(code, /like public\.excel_imports including all/i);
+  assert.match(code, /history_id bigint generated always as identity primary key/);
+  assert.match(code, /import_id uuid not null/);
+  assert.match(code, /records jsonb not null/);
+  assert.match(code, /archived_at timestamptz not null default now\(\)/);
+  assert.match(code, /add constraint excel_imports_history_records_is_array\s+check \(jsonb_typeof\(records\) = 'array' and jsonb_array_length\(records\) > 0\);/);
+
+  // Índice para listar o histórico do mais recente para o mais antigo.
+  assert.match(code, /create index if not exists excel_imports_history_created_at_idx\s+on public\.excel_imports_history \(created_at desc, history_id desc\);/);
+
+  // RLS habilitada e nenhum privilégio para o cliente.
+  assert.match(code, /alter table public\.excel_imports_history enable row level security;/);
+  assert.doesNotMatch(code, /grant[^;]*\bto\b[^;]*\b(?:anon|authenticated)\b/i);
+
+  // O DELETE da tabela corrente arquiva o snapshot antes de removê-lo.
+  assert.match(code, /create trigger excel_imports_archive_history\s+before delete on public\.excel_imports\s+for each row execute function public\.excel_imports_archive_history\(\);/);
+  assert.match(code, /create or replace function public\.excel_imports_archive_history\(\)\s+returns trigger/);
+  assert.match(code, /insert into public\.excel_imports_history\s+\(import_id, file_name, sheet_name, records, metadata, created_at, updated_at, archived_at\)\s+values\s+\(old\.id, old\.file_name, old\.sheet_name, old\.records, old\.metadata, old\.created_at, old\.updated_at, now\(\)\);/);
+
+  // Rollback: busca o histórico, desabilita só o trigger de superset na
+  // transação, arquiva o snapshot vigente com o DELETE, restaura a linha e
+  // reabilita o trigger.
+  assert.match(code, /create or replace function public\.excel_imports_rollback\(p_history_id bigint\)\s+returns uuid/);
+  assert.match(code, /v_row public\.excel_imports_history%rowtype;/);
+  assert.match(code, /HISTORY_NOT_FOUND: histórico % não encontrado/);
+  assert.match(code, /alter table public\.excel_imports disable trigger excel_imports_single_latest;/);
+  assert.match(code, /delete from public\.excel_imports\s+where id in \(select id from public\.excel_imports\);/);
+  assert.match(code, /insert into public\.excel_imports\s+\(id, file_name, sheet_name, records, metadata, created_at, updated_at\)/);
+  // O rollback é um novo evento: usa now() para vencer caches locais antigos;
+  // os timestamps originais permanecem na linha do histórico.
+  assert.match(code, /\(v_row\.import_id, v_row\.file_name, v_row\.sheet_name, v_row\.records, v_row\.metadata, now\(\), now\(\)\)/);
+  assert.match(code, /alter table public\.excel_imports enable trigger excel_imports_single_latest;/);
+  const disableAt = code.indexOf('alter table public.excel_imports disable trigger excel_imports_single_latest;');
+  const deleteAt = code.indexOf('delete from public.excel_imports', disableAt);
+  const insertAt = code.indexOf('insert into public.excel_imports', deleteAt);
+  const enableAt = code.indexOf('alter table public.excel_imports enable trigger excel_imports_single_latest;', insertAt);
+  assert.ok(disableAt >= 0 && deleteAt > disableAt && insertAt > deleteAt && enableAt > insertAt, 'rollback deve desabilitar, apagar, inserir e reabilitar nesta ordem');
+
+  // As duas funções SECURITY DEFINER não podem ser chamadas pelo cliente.
+  assert.match(code, /revoke execute on function public\.excel_imports_archive_history\(\)\s+from public, anon, authenticated;/);
+  assert.match(code, /revoke execute on function public\.excel_imports_rollback\(bigint\)\s+from public, anon, authenticated;/);
+
+  // `search_path` restrito nas duas funções.
+  assert.equal((code.match(/set search_path = ''/g) || []).length, 2);
+
+  // O histórico é append-only para o cliente: sem UPDATE/DELETE.
+  assert.doesNotMatch(code, /update\s+public\.excel_imports_history/i);
+  assert.doesNotMatch(code, /delete\s+from\s+public\.excel_imports_history/i);
+
+  // Nenhum DELETE sem WHERE no SQL novo (o helper remove comentários antes).
+  assert.equal(deletesWithoutWhere(history).length, 0, 'o SQL novo não pode ter DELETE sem WHERE');
+  assert.match(code, /delete from public\.excel_imports\s+where id in \(select id from public\.excel_imports\);/i);
+
+  // README documenta a decisão A, o histórico, o rollback e o risco residual.
+  assert.match(readme, /opção A/i);
+  assert.match(readme, /excel_imports_history/);
+  assert.match(readme, /excel_imports_rollback/);
+  assert.match(readme, /risco residual/i);
+  assert.match(readme, /20261021120000_excel_imports_history\.sql/);
+});
+
+test('higiene: .gitignore, EOL e CI cobrem artefatos e os dois sistemas (F8)', () => {
+  const gitignore = readFileSync(join(root, '.gitignore'), 'utf8');
+  for (const entry of ['node_modules/', '.vercel/', '.agents/', '*.log', '.DS_Store']) {
+    assert.ok(gitignore.includes(entry), entry + ' ausente no .gitignore');
+  }
+
+  const attributes = readFileSync(join(root, '.gitattributes'), 'utf8');
+  assert.match(attributes, /text=auto eol=lf/);
+
+  const workflow = readFileSync(join(root, '.github', 'workflows', 'test.yml'), 'utf8');
+  assert.match(workflow, /ubuntu-latest/);
+  assert.match(workflow, /windows-latest/);
+  assert.match(workflow, /node --test/);
+  assert.match(workflow, /permissions:\s*\n\s*contents: read/);
 });

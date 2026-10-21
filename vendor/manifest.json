@@ -3,13 +3,6 @@
   "strategy": "offline-vendored",
   "libraries": [
     {
-      "name": "Tailwind CSS browser bundle",
-      "version": "3.4.16",
-      "entry": "vendor/tailwind.js",
-      "sha256": "3F81AA7F6ECDB1ACC14C202E513DFEE00B6C7703CD81CE1BE25BF5215A92E8CB",
-      "origin": "https://tailwindcss.com/docs/installation/play-cdn"
-    },
-    {
       "name": "Chart.js",
       "version": "4.4.7",
       "entry": "vendor/chart.umd.min.js",
@@ -32,16 +25,16 @@
     },
     {
       "name": "Plus Jakarta Sans",
-      "version": "unknown",
+      "version": "v12",
       "entry": "vendor/fonts/plus-jakarta-sans.css",
       "sha256": "6AB1BC57F63FE75CBDFB5ED1B875516336DE7458262865F549F2817850F4F0FD",
-      "origin": "https://fonts.google.com/specimen/Plus+Jakarta+Sans"
+      "origin": "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200..800"
     },
     {
       "name": "Vercel Web Analytics",
       "version": "2.0.1",
       "entry": "vendor/vercel-analytics.mjs",
-      "sha256": "84C06A99CB192098CB3C96AF9B8F1080DA3E5EC26C8124388A2903EE03B36944",
+      "sha256": "C3026B63C92AB1B612EDDC0E58264EDC02421F32E2D11F71ECD0E6DD3B22C829",
       "origin": "https://registry.npmjs.org/@vercel/analytics/-/analytics-2.0.1.tgz"
     }
   ],

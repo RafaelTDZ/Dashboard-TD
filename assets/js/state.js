@@ -98,10 +98,10 @@
     }).join(',') + '}';
   }
 
-  // Valor "vazio" para efeito de comparação: null, '' e arrays vazios não
-  // mudam o resultado da comparação e apenas inflam o payload. A mesma regra
-  // vale em app.js (toPersistedRecord) — as duas precisam descartar
-  // exatamente os mesmos campos, senão toda linha vira "atualizada".
+  // Valor "vazio" para efeito de comparação e de persistência: null, '' e
+  // arrays vazios não mudam o resultado e apenas inflam o payload. Esta é a
+  // única implementação da regra: normalize.toPersistedRecord recebe esta
+  // função via DashboardNormalize.create(), para as duas não divergirem.
   function isEmptyValue(value) {
     if (value === null || value === undefined || value === '') return true;
     return Array.isArray(value) && !value.length;
@@ -219,6 +219,7 @@
     normalizeUiStyle: normalizeUiStyle,
     isValidSnapshot: isValidSnapshot,
     normalizeRecordKey: normalizeRecordKey,
+    isEmptyValue: isEmptyValue,
     compareRecords: compareRecords
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

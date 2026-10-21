@@ -18,6 +18,26 @@ const realSetImmediate = globalThis.setImmediate;
 
 const appSource = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
 const stateSource = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
+const normalizeSource = readFileSync(join(root, 'assets', 'js', 'normalize.js'), 'utf8');
+const filtersSource = readFileSync(join(root, 'assets', 'js', 'filters.js'), 'utf8');
+const viewSource = readFileSync(join(root, 'assets', 'js', 'view.js'), 'utf8');
+const snapshotSource = readFileSync(join(root, 'assets', 'js', 'snapshot.js'), 'utf8');
+const tableSource = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
+const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
+const persistenceSource = readFileSync(join(root, 'assets', 'js', 'persistence.js'), 'utf8');
+const importSource = readFileSync(join(root, 'assets', 'js', 'import.js'), 'utf8');
+
+// normalize.js, filters.js, view.js, snapshot.js, table.js, banner.js,
+// persistence.js e import.js são carregados antes de app.js no index.html;
+// aqui fazemos o mesmo para que o app encontre os módulos ao ser avaliado.
+new Function(normalizeSource)();
+new Function(filtersSource)();
+new Function(viewSource)();
+new Function(snapshotSource)();
+new Function(tableSource)();
+new Function(bannerSource)();
+new Function(persistenceSource)();
+new Function(importSource)();
 
 function createClassList() {
   const names = new Set();
@@ -508,7 +528,7 @@ test('filtro de operação sem acento encontra a operação acentuada', async ()
   }
 });
 
-test('a tabela mostra o total do dataset além do total filtrado (B9)', async () => {
+test('a tabela mostra o total do dataset além do total filtrado (B9/F9)', async () => {
   canonicalizeHook = null;
   const year = new Date().getFullYear();
   const records = makeRecords();
@@ -521,8 +541,31 @@ test('a tabela mostra o total do dataset além do total filtrado (B9)', async ()
   try {
     assert.equal(rowCount(document), 3, 'o filtro de ano padrão esconde o registro de outro ano');
     const counter = document.getElementById('table-count');
-    assert.match(counter.innerText, /de 3 de 4 registro\(s\)/, counter.innerText);
-    assert.match(counter.title, /3 de 4 registro\(s\)/, counter.title);
+    assert.match(counter.innerText, /Exibindo 1–3 de 3 filtrados \(4 no total\)/, counter.innerText);
+    assert.match(counter.title, /3 filtrados de 4 registros no dataset/, counter.title);
+
+    // O resumo persistente do cabeçalho e o hint do KPI mostram o mesmo
+    // recorte sem precisar trocar de aba (F9).
+    const summary = document.getElementById('dataset-summary');
+    assert.match(summary.innerText, /Importações\.xlsx/, summary.innerText);
+    assert.match(summary.innerText, /3 de 4 processos/, summary.innerText);
+    assert.match(summary.title, /Importações\.xlsx/, summary.title);
+    assert.match(summary.title, /3 filtrados de 4 processos/, summary.title);
+    assert.match(summary.title, /Última leitura:/, summary.title);
+
+    const hint = document.getElementById('kpi-processos-hint');
+    assert.match(hint.innerText, /3 de 4/, hint.innerText);
+    assert.match(hint.innerText, new RegExp(String(year)), hint.innerText);
+
+    // Sem filtro de ano o recorte passa a ser o dataset inteiro.
+    const yearSelect = document.getElementById('monthly-year');
+    yearSelect.value = 'ALL';
+    yearSelect.dispatch('change', { target: yearSelect });
+
+    assert.equal(rowCount(document), 4, 'o filtro "Todos os anos" mostra o dataset inteiro');
+    assert.match(document.getElementById('table-count').innerText, /Exibindo 1–4 de 4 registros/);
+    assert.match(document.getElementById('dataset-summary').innerText, /4 processos/);
+    assert.equal(hint.innerText, '4 registros no dataset');
 
     scheduler.advance(600);
     await flush();

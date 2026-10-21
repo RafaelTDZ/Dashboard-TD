@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node tools/serve.mjs 8765",
     "dev": "node tools/serve.mjs 8765",
-    "test": "node --test"
+    "test": "node --test",
+    "build:css": "npx --yes tailwindcss@3.4.16 -c tailwind.config.cjs -i assets/css/tailwind.src.css -o assets/css/tailwind.css --minify"
   },
   "engines": {
     "node": ">=18"

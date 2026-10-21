@@ -12,6 +12,15 @@ import test from 'node:test';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const html = readFileSync(join(root, 'index.html'), 'utf8');
 const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+const stateSource = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
+const normalizeSource = readFileSync(join(root, 'assets', 'js', 'normalize.js'), 'utf8');
+const filtersSource = readFileSync(join(root, 'assets', 'js', 'filters.js'), 'utf8');
+const viewSource = readFileSync(join(root, 'assets', 'js', 'view.js'), 'utf8');
+const snapshotSource = readFileSync(join(root, 'assets', 'js', 'snapshot.js'), 'utf8');
+const table = readFileSync(join(root, 'assets', 'js', 'table.js'), 'utf8');
+const bannerSource = readFileSync(join(root, 'assets', 'js', 'banner.js'), 'utf8');
+const persistence = readFileSync(join(root, 'assets', 'js', 'persistence.js'), 'utf8');
+const importSource = readFileSync(join(root, 'assets', 'js', 'import.js'), 'utf8');
 const charts = readFileSync(join(root, 'assets', 'js', 'charts.js'), 'utf8');
 
 function tagOf(source, id) {
@@ -20,8 +29,8 @@ function tagOf(source, id) {
   return match[0];
 }
 
-function bodyOf(source, signature) {
-  const match = source.match(new RegExp(signature + '\\s*\\{([\\s\\S]*?)\\n  \\}'));
+function bodyOf(source, signature, indent = 2) {
+  const match = source.match(new RegExp(signature + '\\s*\\{([\\s\\S]*?)\\n' + ' '.repeat(indent) + '\\}'));
   assert.ok(match, 'a função ' + signature + ' não foi encontrada');
   return match[1];
 }
@@ -40,39 +49,50 @@ test('o card de status nasce escondido e é revelado pelo app nos dois modos', (
   assert.ok(html.includes('id="banner-text"'));
   assert.ok(html.includes('id="last-update-time"'));
 
-  // Não pode existir um segundo card de resumo permanente: a mensagem é única.
-  assert.doesNotMatch(html, /id="dataset-summary"/, 'o resumo deve morar no card de status');
+  // O resumo persistente mora no cabeçalho, FORA do card transitório (F9).
+  assert.match(html, /id="dataset-summary"/);
+  const header = html.match(/<header\b[\s\S]*?<\/header>/);
+  assert.ok(header, 'o <header> não foi encontrado');
+  assert.match(header[0], /id="dataset-summary"/, 'o resumo persistente precisa estar no cabeçalho');
+  const bannerBlock = html.slice(html.indexOf('id="status-banner"'), html.indexOf('<section id="tab-dashboard"'));
+  assert.doesNotMatch(bannerBlock, /id="dataset-summary"/, 'o resumo não pode morar no card de status');
 
   // O app sabe revelar nos dois modos e sabe esconder de novo.
-  const show = bodyOf(app, 'function showStatusBanner\\(transient\\)');
+  const show = bodyOf(bannerSource, 'function showStatusBanner\\(transient\\)', 4);
   assert.match(show, /banner\.hidden = false/, 'o card precisa ser revelado');
   assert.match(show, /STATUS_BANNER_VISIBLE_MS/);
 
-  // O estado inicial (sem arquivo) fica visível; com arquivo, expira.
-  const init = app.match(/restoreState\(\)\.then\(function \(snapshot\)[\s\S]*?\}\)\.catch/);
+  // O estado inicial (sem arquivo) fica visível; com arquivo, expira. A
+  // restauração agora é local-first: o cache pinta a tela em presentSnapshot()
+  // e o remoto reconcilia no .then final.
+  const init = app.match(/restoreState\(\{[\s\S]*?\}\)\.then\(function \(snapshot\)[\s\S]*?\}\)\.catch/);
   assert.ok(init, 'o init precisa decidir a visibilidade do card');
-  assert.match(init[0], /showStatusBanner\(!!snapshot\)/, 'sem dataset o card fica; com dataset ele expira');
+  assert.match(init[0], /onLocal: function \(cachedSnapshot\)/, 'o cache local precisa ser apresentado antes do remoto');
+  assert.match(init[0], /presentSnapshot\(cachedSnapshot\)/, 'o primeiro paint vem do cache');
+  assert.match(init[0], /presentSnapshot\(snapshot\)/, 'o remoto reconcilia o que já está na tela');
+  const present = bodyOf(snapshotSource, 'function presentSnapshot\\(snapshot, options\\)');
+  assert.match(present, /showStatusBanner\(!!snapshot\)/, 'sem dataset o card fica; com dataset ele expira');
 });
 
 test('updateBanner escreve o resumo no card e o erro fatal trava a mensagem', () => {
-  const update = bodyOf(app, 'function updateBanner\\(\\)');
+  const update = bodyOf(bannerSource, 'function updateBanner\\(\\)', 4);
   assert.match(update, /setBannerText\(/, 'o resumo precisa ser escrito');
   assert.match(update, /last-update-time/);
   assert.match(update, /Nenhum arquivo carregado/, 'o estado vazio precisa ser observável');
 
   // O texto mora no #banner-text do próprio card de status.
-  const setText = bodyOf(app, 'function setBannerText\\(html\\)');
+  const setText = bodyOf(bannerSource, 'function setBannerText\\(html\\)', 4);
   assert.match(setText, /els\['banner-text'\]/);
   assert.match(setText, /statusBannerLocked/, 'setBannerText precisa respeitar o bloqueio de erro');
 
   // O erro fatal fica no mesmo campo, mas trava o card para que um refresh()
   // posterior não apague a mensagem (B3).
-  const fatal = bodyOf(app, 'function showStatusBannerError\\(message\\)');
+  const fatal = bodyOf(bannerSource, 'function showStatusBannerError\\(message\\)', 4);
   assert.match(fatal, /els\['banner-text'\]/);
   assert.match(fatal, /statusBannerLocked = true/);
 
   // A importação reabilita o card (o erro deixa de valer).
-  const transient = bodyOf(app, 'function showTransientUpdateBanner\\(\\)');
+  const transient = bodyOf(bannerSource, 'function showTransientUpdateBanner\\(\\)', 4);
   assert.match(transient, /statusBannerLocked = false/);
 });
 
@@ -88,15 +108,34 @@ test('Content-Security-Policy restringe as origens e bloqueia plugins', () => {
   const csp = content[1];
 
   assert.match(csp, /default-src 'self'/);
-  assert.match(csp, /connect-src 'self' https:\/\/\*\.supabase\.co/);
+  assert.match(csp, /connect-src 'self' https:\/\/bsczvemaqvladupmdpgl\.supabase\.co/);
+  assert.doesNotMatch(csp, /https:\/\/\*\.supabase\.co/, 'connect-src não deve liberar qualquer projeto Supabase');
   assert.match(csp, /object-src 'none'/);
   assert.match(csp, /base-uri 'self'/);
   assert.match(csp, /worker-src 'self'/);
-  // 'unsafe-inline' é obrigatório por causa do tailwind.config inline.
-  assert.match(csp, /script-src 'self' 'unsafe-inline'/);
+  // O Tailwind é compilado e não há mais script inline nem eval.
+  assert.match(csp, /script-src 'self'/);
+  assert.doesNotMatch(csp, /'unsafe-eval'/);
+  assert.doesNotMatch(csp, /'unsafe-inline'/);
   assert.match(csp, /font-src 'self' data:/);
   assert.match(csp, /img-src 'self' data:/);
   assert.match(csp, /form-action 'self'/);
+});
+
+test('Tailwind é compilado e servido como CSS estático (F7)', () => {
+  assert.doesNotMatch(html, /vendor\/tailwind\.js/, 'o Play CDN não deve voltar ao index.html');
+  assert.doesNotMatch(html, /tailwind\.config/, 'não deve haver configuração inline do Tailwind');
+
+  const tailwindLink = html.indexOf('href="assets/css/tailwind.css"');
+  const stylesLink = html.indexOf('href="assets/css/styles.css"');
+  assert.ok(tailwindLink > -1, 'o CSS compilado do Tailwind precisa ser carregado');
+  assert.ok(tailwindLink < stylesLink, 'o Tailwind precisa vir antes dos estilos próprios');
+
+  const css = readFileSync(join(root, 'assets', 'css', 'tailwind.css'), 'utf8');
+  assert.ok(css.length > 10000, 'o CSS compilado parece incompleto');
+  for (const utility of ['.bg-darkbg', '.text-slate-100', '.bg-emerald-600', '.text-slate-400']) {
+    assert.ok(css.includes(utility), 'utility ausente no CSS compilado: ' + utility);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -125,11 +164,17 @@ test('menu de mês tem papel e controle, e o seletor de ano tem um rótulo só',
 // ---------------------------------------------------------------------------
 
 test('snapshot persistido usa a cópia enxuta dos registros', () => {
-  assert.match(app, /function toPersistedRecord\(record\)/);
-  assert.match(app, /if \(key === '_search'\) return;/, 'o índice derivado não pode ser persistido');
-  assert.match(app, /records: state\.dataset\.map\(toPersistedRecord\)/);
+  assert.match(normalizeSource, /function toPersistedRecord\(record\)/);
+  assert.match(normalizeSource, /if \(key === '_search'\) return;/, 'o índice derivado não pode ser persistido');
+  // A regra de "vazio" tem uma única implementação (DashboardState.isEmptyValue).
+  assert.match(stateSource, /isEmptyValue: isEmptyValue/);
+  assert.match(normalizeSource, /var isEmptyValue = deps\.isEmptyValue;/);
+  assert.match(normalizeSource, /if \(isEmptyValue\(value\)\) return;/);
+  assert.doesNotMatch(normalizeSource, /function isEmptyPersistedValue/);
+  assert.match(app, /isEmptyValue: global\.DashboardState\.isEmptyValue/);
+  assert.match(persistence, /records: state\.dataset\.map\(toPersistedRecord\)/);
   // O mesmo recorte vale para o cache local (persistLocal usa buildSnapshot).
-  assert.match(app, /function persistLocal\(\)\s*\{[\s\S]*?var snapshot = buildSnapshot\(\);/);
+  assert.match(persistence, /function persistLocal\(\)\s*\{[\s\S]*?var snapshot = buildSnapshot\(\);/);
 });
 
 // ---------------------------------------------------------------------------
@@ -137,12 +182,12 @@ test('snapshot persistido usa a cópia enxuta dos registros', () => {
 // ---------------------------------------------------------------------------
 
 test('persistência local tem limite de tentativas', () => {
-  const limit = app.match(/var PERSIST_RETRY_LIMIT = (\d+);/);
+  const limit = persistence.match(/var PERSIST_RETRY_LIMIT = (\d+);/);
   assert.ok(limit, 'PERSIST_RETRY_LIMIT não existe (a persistência se reagenda para sempre)');
   assert.ok(Number(limit[1]) > 0 && Number.isFinite(Number(limit[1])), 'o limite precisa ser um número finito');
-  assert.match(app, /if \(persistRetryCount < PERSIST_RETRY_LIMIT\)/);
+  assert.match(persistence, /if \(persistRetryCount < PERSIST_RETRY_LIMIT\)/);
   // Com a validação pendente, o timer para de reagendar ao atingir o limite.
-  const scheduled = bodyOf(app, 'function runScheduledPersist\\(\\)');
+  const scheduled = bodyOf(persistence, 'function runScheduledPersist\\(\\)');
   assert.match(scheduled, /persistRetryCount < PERSIST_RETRY_LIMIT/);
 });
 
@@ -193,8 +238,9 @@ test('código morto de LATEST, getAnalistaMode e schedulePersist(remote) foi rem
   assert.doesNotMatch(chartsCode, /LATEST/);
   assert.doesNotMatch(chartsCode, /getAnalistaMode/);
 
-  // app.js não passa mais parâmetro para schedulePersist.
-  const appCode = stripJsComments(app);
+  // app.js (com os módulos filters.js e view.js, para onde as chamadas
+  // migraram) não passa mais parâmetro para schedulePersist.
+  const appCode = stripJsComments(app + '\n' + filtersSource + '\n' + viewSource);
   const calls = [...appCode.matchAll(/schedulePersist\(([^)]*)\)/g)].map((match) => match[1].trim());
   assert.ok(calls.length > 0, 'schedulePersist não é chamado em lugar nenhum');
   for (const argument of calls) {
@@ -214,11 +260,13 @@ test('código morto de LATEST, getAnalistaMode e schedulePersist(remote) foi rem
 // ---------------------------------------------------------------------------
 
 test('tabela mostra o total do dataset junto do total filtrado', () => {
-  const render = bodyOf(app, 'function renderTable\\(\\)');
+  const render = bodyOf(table, 'function renderTable\\(\\)', 4);
   assert.match(render, /var datasetTotal = state\.dataset\.length;/);
-  assert.match(render, /' de ' \+ global\.UI\.formatNumber\(datasetTotal\)/);
+  assert.match(render, /' filtrados \(' \+ UI\.formatNumber\(datasetTotal\) \+ ' no total\)'/);
+  assert.match(render, /' filtrados de ' \+ UI\.formatNumber\(datasetTotal\) \+ ' registros no dataset\.'/);
   assert.match(render, /els\['table-count'\]\.innerText/);
   assert.match(render, /els\['table-count'\]\.title/);
+  assert.doesNotMatch(render, /' de ' \+ UI\.formatNumber\(total\) \+ ' de '/, 'a contagem não repete "de ... de ..."');
 });
 
 // ---------------------------------------------------------------------------
@@ -238,10 +286,74 @@ test('handler do tablist não quebra quando nenhuma aba está selecionada', () =
 // ---------------------------------------------------------------------------
 
 test('fallback de parsing não repete o parse depois que a promessa já resolveu', () => {
-  const fallback = app.match(/var parseOnMainThread = function \(\) \{([\s\S]*?)\n      \};/);
+  const fallback = importSource.match(/var parseOnMainThread = function \(\) \{([\s\S]*?)\n {8}\};/);
   assert.ok(fallback, 'parseOnMainThread não foi encontrado');
   const guards = fallback[1].match(/if \(settled\) return;/g) || [];
   assert.equal(guards.length, 2, 'a guarda `settled` precisa existir antes e dentro do parse assíncrono');
   // O caminho do Worker que falha também passa pela função com a guarda.
-  assert.match(app, /worker\.onerror = function \(event\) \{[\s\S]*?parseOnMainThread\(\);/);
+  assert.match(importSource, /worker\.onerror = function \(event\) \{[\s\S]*?parseOnMainThread\(\);/);
+});
+
+// ---------------------------------------------------------------------------
+// F3 — o HEAD do analytics tem timeout curto e limpa o timer
+// ---------------------------------------------------------------------------
+
+test('analytics aplica timeout de 5s ao HEAD e limpa o timer em sucesso e falha', async () => {
+  const analytics = readFileSync(join(root, 'assets', 'js', 'analytics.js'), 'utf8');
+  const start = analytics.indexOf('const INSIGHTS_PATH');
+  const end = analytics.indexOf('// Initialize Vercel Analytics');
+  assert.ok(start > -1 && end > start, 'não foi possível isolar a lógica do analytics');
+  const code = analytics.slice(start, end);
+  assert.match(code, /const INSIGHTS_TIMEOUT_MS = 5000;/, 'o timeout precisa ser explícito e curto');
+
+  // Avalia só o bloco puro (sem o import do vendor) para exercitar o helper
+  // com fetch/AbortController controlados.
+  const factory = new Function(
+    'fetch', 'setTimeout', 'clearTimeout', 'AbortController', 'location',
+    '"use strict";\n' + code + '\nreturn { shouldInjectAnalytics: shouldInjectAnalytics };'
+  );
+
+  let fetchCall = null;
+  let scheduled = null;
+  let cleared = null;
+  const fakeFetch = (url, options) => {
+    fetchCall = { url, options };
+    return new Promise((resolve, reject) => {
+      options.signal.addEventListener('abort', () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    });
+  };
+  const api = factory(
+    fakeFetch,
+    (fn, ms) => { scheduled = { fn, ms, id: 7 }; return 7; },
+    (id) => { cleared = id; },
+    AbortController,
+    { hostname: 'dashboard.exemplo.com' }
+  );
+
+  const pending = api.shouldInjectAnalytics();
+  assert.equal(fetchCall.url, '/_vercel/insights/script.js');
+  assert.equal(fetchCall.options.method, 'HEAD');
+  assert.ok(fetchCall.options.signal, 'o HEAD precisa usar AbortController');
+  assert.equal(scheduled.ms, 5000, 'o HEAD precisa expirar em 5s');
+
+  scheduled.fn(); // dispara o abort
+  assert.equal(await pending, false, 'falha/timeout do HEAD devolve false');
+  assert.equal(cleared, 7, 'o timer precisa ser limpo quando o fetch falha');
+
+  // Sucesso: resposta ok, timer limpo e injeção liberada.
+  let successful = null;
+  const apiOk = factory(
+    (url, options) => { successful = { url, options }; return Promise.resolve({ ok: true }); },
+    (fn, ms) => { scheduled = { fn, ms, id: 9 }; return 9; },
+    (id) => { cleared = id; },
+    AbortController,
+    { hostname: 'dashboard.exemplo.com' }
+  );
+  assert.equal(await apiOk.shouldInjectAnalytics(), true, 'HEAD ok libera a injeção');
+  assert.equal(successful.options.method, 'HEAD');
+  assert.equal(cleared, 9, 'o timer precisa ser limpo quando o fetch resolve');
 });

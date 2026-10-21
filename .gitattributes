@@ -1,0 +1,7 @@
+* text=auto eol=lf
+
+# Binários: nunca converter
+*.xlsx binary
+*.woff2 binary
+*.ttf binary
+*.ico binary
