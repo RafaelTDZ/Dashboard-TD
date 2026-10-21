@@ -12,6 +12,7 @@ import test from 'node:test';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const html = readFileSync(join(root, 'index.html'), 'utf8');
 const app = readFileSync(join(root, 'assets', 'js', 'app.js'), 'utf8');
+const stateSource = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
 const normalizeSource = readFileSync(join(root, 'assets', 'js', 'normalize.js'), 'utf8');
 const filtersSource = readFileSync(join(root, 'assets', 'js', 'filters.js'), 'utf8');
 const viewSource = readFileSync(join(root, 'assets', 'js', 'view.js'), 'utf8');
@@ -165,6 +166,12 @@ test('menu de mês tem papel e controle, e o seletor de ano tem um rótulo só',
 test('snapshot persistido usa a cópia enxuta dos registros', () => {
   assert.match(normalizeSource, /function toPersistedRecord\(record\)/);
   assert.match(normalizeSource, /if \(key === '_search'\) return;/, 'o índice derivado não pode ser persistido');
+  // A regra de "vazio" tem uma única implementação (DashboardState.isEmptyValue).
+  assert.match(stateSource, /isEmptyValue: isEmptyValue/);
+  assert.match(normalizeSource, /var isEmptyValue = deps\.isEmptyValue;/);
+  assert.match(normalizeSource, /if \(isEmptyValue\(value\)\) return;/);
+  assert.doesNotMatch(normalizeSource, /function isEmptyPersistedValue/);
+  assert.match(app, /isEmptyValue: global\.DashboardState\.isEmptyValue/);
   assert.match(persistence, /records: state\.dataset\.map\(toPersistedRecord\)/);
   // O mesmo recorte vale para o cache local (persistLocal usa buildSnapshot).
   assert.match(persistence, /function persistLocal\(\)\s*\{[\s\S]*?var snapshot = buildSnapshot\(\);/);

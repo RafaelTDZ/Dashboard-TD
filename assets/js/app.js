@@ -39,7 +39,8 @@
 
   // Normalização de registros e referência mensal vivem em normalize.js.
   var normalize = global.DashboardNormalize.create({
-    ETL: global.ETL
+    ETL: global.ETL,
+    isEmptyValue: global.DashboardState.isEmptyValue
   });
 
   // Filtros, busca e ordenação vivem em filters.js. O app injeta o estado, os

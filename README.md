@@ -89,6 +89,8 @@ O site em produção é publicado pela Vercel a partir deste repositório no Git
 node --test
 ```
 
+A mesma suíte roda em Linux e Windows no GitHub Actions (`.github/workflows/test.yml`).
+
 Os testes cobrem regras de status, datas, números e moedas (incluindo células Excel formatadas em CNY), importação XLSX e aba `Comments`, validação e normalização de snapshots e filtros, comparação por `operacao` (superset, processos removidos, atualizações e chaves duplicadas), bloqueio de arquivo incompleto, recusa do trigger sem contaminar o cache local, persistência (envio apenas na importação, cache local das interações, restauração "mais recente vence" e respostas do Supabase sem corpo), histórico append-only e rollback, sintaxe dos scripts, referências locais e acessibilidade estrutural.
 
 Também é possível verificar individualmente os scripts:
@@ -117,6 +119,8 @@ Get-ChildItem assets/js -Filter *.js | ForEach-Object { node --check $_.FullName
 - `tools/serve.mjs` — servidor estático local.
 - `supabase/migrations/` — SQL das migrations (snapshot único, endurecimento, histórico append-only e rollback), incluindo `20261021120000_excel_imports_history.sql`.
 - `tests/` — suíte `node --test`.
+- `.github/workflows/test.yml` — CI da suíte em Linux e Windows.
+- `.gitignore` — dependências locais, metadados de deploy e ferramentas de agentes.
 - `data/` — planilha de referência do smoke test.
 - `vendor/` — bibliotecas offline (SheetJS/XLSX, Chart.js, Font Awesome e Vercel Analytics).
 

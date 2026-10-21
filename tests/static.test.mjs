@@ -462,3 +462,19 @@ test('F4: histórico append-only e rollback', () => {
   assert.match(readme, /risco residual/i);
   assert.match(readme, /20261021120000_excel_imports_history\.sql/);
 });
+
+test('higiene: .gitignore, EOL e CI cobrem artefatos e os dois sistemas (F8)', () => {
+  const gitignore = readFileSync(join(root, '.gitignore'), 'utf8');
+  for (const entry of ['node_modules/', '.vercel/', '.agents/', '*.log', '.DS_Store']) {
+    assert.ok(gitignore.includes(entry), entry + ' ausente no .gitignore');
+  }
+
+  const attributes = readFileSync(join(root, '.gitattributes'), 'utf8');
+  assert.match(attributes, /text=auto eol=lf/);
+
+  const workflow = readFileSync(join(root, '.github', 'workflows', 'test.yml'), 'utf8');
+  assert.match(workflow, /ubuntu-latest/);
+  assert.match(workflow, /windows-latest/);
+  assert.match(workflow, /node --test/);
+  assert.match(workflow, /permissions:\s*\n\s*contents: read/);
+});

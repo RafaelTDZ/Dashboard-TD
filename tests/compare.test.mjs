@@ -6,11 +6,43 @@ import test from 'node:test';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const stateSource = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
+const normalizeSource = readFileSync(join(root, 'assets', 'js', 'normalize.js'), 'utf8');
 
 new Function(stateSource)();
+new Function(normalizeSource)();
 
 const compare = globalThis.DashboardState.compareRecords;
 const normalizeKey = globalThis.DashboardState.normalizeRecordKey;
+const isEmptyValue = globalThis.DashboardState.isEmptyValue;
+const normalize = globalThis.DashboardNormalize.create({
+  ETL: null,
+  isEmptyValue: globalThis.DashboardState.isEmptyValue
+});
+
+test('isEmptyValue é a fonte única para persistência e comparação', () => {
+  assert.equal(isEmptyValue(null), true);
+  assert.equal(isEmptyValue(undefined), true);
+  assert.equal(isEmptyValue(''), true);
+  assert.equal(isEmptyValue([]), true);
+  assert.equal(isEmptyValue(0), false);
+  assert.equal(isEmptyValue(false), false);
+  assert.equal(isEmptyValue('0'), false);
+  assert.equal(isEmptyValue([0]), false);
+});
+
+test('toPersistedRecord usa a mesma regra de vazio e remove só o índice derivado', () => {
+  assert.deepEqual(
+    normalize.toPersistedRecord({
+      operacao: 'IMP-1',
+      valor: 0,
+      vazio: '',
+      nulo: null,
+      lista: [],
+      _search: 'imp-1'
+    }),
+    { operacao: 'IMP-1', valor: 0 }
+  );
+});
 
 test('compara snapshots por Operação e libera somente quando o novo arquivo é superset', () => {
   const previous = [

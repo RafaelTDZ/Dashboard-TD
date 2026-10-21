@@ -6,6 +6,11 @@
 
   function create(deps) {
     var ETL = deps.ETL;
+    var isEmptyValue = deps.isEmptyValue;
+
+    if (typeof isEmptyValue !== 'function') {
+      throw new TypeError('DashboardNormalize requer DashboardState.isEmptyValue');
+    }
 
     // Normaliza texto para a busca: sem acentos e em minúsculas. Só o índice
     // (_search) e as comparações usam essa forma — o texto exibido na tabela e
@@ -18,13 +23,8 @@
     }
 
     // Valor "vazio" para efeito de persistência e de comparação de snapshots:
-    // null, '' e arrays vazios não mudam o resultado e apenas inflam o payload.
-    // A mesma regra vale em state.js (recordFingerprint) — as duas precisam
-    // descartar exatamente os mesmos campos.
-    function isEmptyPersistedValue(value) {
-      if (value === null || value === undefined || value === '') return true;
-      return Array.isArray(value) && !value.length;
-    }
+    // a regra vem de DashboardState.isEmptyValue (fonte única), para que
+    // toPersistedRecord e recordFingerprint descartem exatamente os mesmos campos.
 
     // Cópia enxuta do registro para o que é persistido (Supabase e cache local):
     // sem o índice derivado (_search), sem campos vazios e sem arrays vazios.
@@ -35,7 +35,7 @@
       Object.keys(record || {}).forEach(function (key) {
         if (key === '_search') return;
         var value = record[key];
-        if (isEmptyPersistedValue(value)) return;
+        if (isEmptyValue(value)) return;
         copy[key] = value;
       });
       return copy;

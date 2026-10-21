@@ -18,9 +18,11 @@ import test from 'node:test';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const realSetImmediate = globalThis.setImmediate;
 
-// normalize.js, filters.js, view.js, snapshot.js, table.js, banner.js,
+// state.js, normalize.js, filters.js, view.js, snapshot.js, table.js, banner.js,
 // persistence.js e import.js são carregados antes de app.js no index.html;
 // aqui fazemos o mesmo para que o app encontre os módulos ao ser avaliado.
+const stateSource = readFileSync(join(root, 'assets', 'js', 'state.js'), 'utf8');
+new Function(stateSource)();
 const normalizeSource = readFileSync(join(root, 'assets', 'js', 'normalize.js'), 'utf8');
 new Function(normalizeSource)();
 const filtersSource = readFileSync(join(root, 'assets', 'js', 'filters.js'), 'utf8');
@@ -245,6 +247,7 @@ function createStateStub() {
     normalizeAnalistaMode: (mode) => (mode === 'qtd' ? 'qtd' : 'valor'),
     normalizeUiStyle: (style) => (style === 'modern' ? 'modern' : 'classic'),
     normalizeRecordKey: (value) => String(value == null ? '' : value).trim().toUpperCase(),
+    isEmptyValue: (value) => value === null || value === undefined || value === '' || (Array.isArray(value) && !value.length),
     compareRecords: (previous, next) => {
       const previousKeys = new Set((previous || []).map((record) => String(record.operacao).trim().toUpperCase()));
       const nextKeys = new Set((next || []).map((record) => String(record.operacao).trim().toUpperCase()));
