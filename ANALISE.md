@@ -44,7 +44,7 @@
 | F6 | 🟠 P1 | Snapshot inteiro e limite de escala | `[ ]` |
 | F7 | 🟡 P2 | Tailwind em runtime e CSP permissiva | `[ ]` |
 | F8 | 🟡 P2 | Higiene de engenharia e documentação | `[ ]` |
-| F9 | 🟠 P1 | Resumo do dataset e total não persistem no Dashboard | `[ ]` |
+| F9 | 🟠 P1 | Resumo do dataset e total não persistem no Dashboard | `[x]` |
 | F10 | 🟡 P2 | Cobertura de testes não comprova T3/T4/M5/B6 | `[ ]` |
 
 > F9 e F10 vieram da auditoria dos 34 itens originais (21/10/2026); F1–F8 são da análise estrutural.
@@ -858,10 +858,17 @@ jobs:
 
 **Critérios de aceite**
 
-- [ ] Após 8 s (e após reload), o Dashboard mostra o nome do arquivo carregado
-- [ ] O Dashboard mostra o total do dataset e o total filtrado sem trocar de aba
-- [ ] O texto da tabela não repete “de” de forma ambígua
-- [ ] Teste cobre o estado depois que o timer do banner dispara
+- [x] Após 8 s (e após reload), o Dashboard mostra o nome do arquivo carregado
+- [x] O Dashboard mostra o total do dataset e o total filtrado sem trocar de aba
+- [x] O texto da tabela não repete “de” de forma ambígua
+- [x] Teste cobre o estado depois que o timer do banner dispara
+
+> Executado em 21/10/2026: `#dataset-summary` no cabeçalho mostra
+> `!Importações.xlsx · 861 de 1.944 processos`; o KPI ganhou
+> `#kpi-processos-hint` (`861 de 1.944 · filtro 2026`) e a tabela passou a
+> `Exibindo 1–50 de 861 filtrados (1.944 no total)`. Validado no navegador local
+> (viewport 1000×700, sem overflow horizontal) e após o timer do banner. Suíte:
+> 108/108.
 
 ---
 
@@ -1086,6 +1093,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Fase 0 | preparação | branch `chore/estrutura-correcoes`; baseline 101/104 | — | árvore limpa exceto `.agents/`; inspeção visual ainda pendente |
 | 21/10/2026 | Fase 1 | F1 | `.gitattributes`, normalização LF e teste SQL EOL-safe | subagente F1 | commit `0c05e2f`; 104/104 no Windows; manifesto do analytics corrigido |
 | 21/10/2026 | Fase 1 | F2 | `created_at` server-authoritative no save e na restauração | subagente F2 | commit `9735256`; 107/107; 3 testes novos |
+| 21/10/2026 | Fase 2 | F9 | resumo persistente no cabeçalho + hint do KPI + texto da tabela | subagente F9 | commit `1f561bb`; 108/108; validado no navegador local |
 | | | | | | |
 | | | | | | |
 
