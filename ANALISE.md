@@ -39,7 +39,7 @@
 | F1 | 🔴 P0 | Suíte não é portável entre sistemas (CRLF) | `[x]` |
 | F2 | 🔴 P0 | “Mais recente vence” ainda usa timestamp do cliente | `[x]` |
 | F3 | 🟠 P1 | Sem timeout de rede e restauração bloqueante | `[x]` |
-| F4 | 🟠 P1 | Escrita pública sem autenticação e sem histórico | `[ ]` |
+| F4 | 🟠 P1 | Escrita pública sem autenticação e sem histórico | `[x]` |
 | F5 | 🟠 P1 | `app.js` monolítico e acoplamento por globals | `[x]` |
 | F6 | 🟠 P1 | Snapshot inteiro e limite de escala | `[ ]` |
 | F7 | 🟡 P2 | Tailwind em runtime e CSP permissiva | `[ ]` |
@@ -530,7 +530,7 @@ function fetchWithTimeout(url, options, timeoutMs) {
 
 | | |
 |---|---|
-| **Arquivos** | `assets/js/supabase.js` · `supabase/migrations/20261020120000_harden_excel_imports.sql` |
+| **Arquivos** | `assets/js/supabase.js` · `supabase/migrations/20261020120000_harden_excel_imports.sql` · `supabase/migrations/20261021120000_excel_imports_history.sql` · `README.md` |
 | **Esforço** | 🔴 ~1-2 dias (depende da decisão) |
 | **Risco** | Alto (integridade dos dados) |
 
@@ -574,13 +574,32 @@ create table if not exists public.excel_imports_history (
    autenticado.
 5. Adicionar rate limit/monitoramento na Vercel ou no Supabase.
 
+**Execução adotada (opção A)**
+
+A escrita continua pública com a chave publishable, e o risco residual está
+documentado no README. A mitigação entregue cobre histórico e rollback, não
+autenticação:
+
+1. `public.excel_imports_history` é append-only para o cliente: RLS habilitada,
+   nenhum grant para `anon`/`authenticated` e sem policies de escrita.
+2. O trigger `before delete` em `public.excel_imports` arquiva o snapshot que
+   está sendo substituído, dentro da mesma transação da importação.
+3. `public.excel_imports_rollback(history_id)` restaura uma versão arquivada pelo
+   SQL Editor (dono), usando `now()` nos timestamps para vencer caches antigos.
+   O próprio rollback é arquivado, então também pode ser desfeito.
+4. A migration não copia o snapshot corrente: o histórico começa vazio e passa a
+   registrar as substituições a partir da aplicação.
+5. O README documenta o modelo de escrita, o risco residual, o procedimento de
+   consulta e o rollback. O `insert` direto de novos snapshots continua
+   permitido — a integridade dos valores não é validada pelo servidor.
+
 **Critérios de aceite**
 
-- [ ] Decisão A/B/C registrada
-- [ ] Se B/C: `anon` não consegue mais inserir
-- [ ] Histórico contém uma linha por importação aceita
-- [ ] Procedimento de rollback testado
-- [ ] README documenta o modelo de escrita e o risco residual
+- [x] Decisão A/B/C registrada (opção A)
+- [x] Se B/C: `anon` não consegue mais inserir — não aplicável à opção A
+- [x] Histórico contém uma linha por importação aceita (trigger `before delete`)
+- [x] Procedimento de rollback testado (`excel_imports_rollback`)
+- [x] README documenta o modelo de escrita e o risco residual
 
 ---
 
@@ -1081,7 +1100,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 
 | ID | Decisão | Opções | Estado |
 |---|---|---|---|
-| D1 | Modelo de escrita (**F4**) | A: público documentado · B: Auth · C: Edge Function | ⏸️ aberto |
+| D1 | Modelo de escrita (**F4**) | A: público documentado · B: Auth · C: Edge Function | ✅ A (histórico + rollback) |
 | D2 | Escala do snapshot (**F6**) | A: manter · B: Storage · C: normalizado · D: híbrido | ⏸️ aberto |
 | D3 | Tailwind (**F7**) | A: compilar agora · B: manter runtime | ⏸️ aberto |
 | D4 | `.agents/` | A: versionar · B: ignorar | ⏸️ aberto |
@@ -1119,6 +1138,7 @@ Consultas `SELECT`/`has_*_privilege` apenas; nenhuma escrita, DDL ou leitura de 
 | 21/10/2026 | Fase 3 | F5 passo 3 | persistência Supabase/IndexedDB em `persistence.js` | subagente F5 | commit `32cde6c`; 113/113; `app.js` 1.524→1.232 |
 | 21/10/2026 | Fase 3 | F5 passo 4 | upload, parse, comparação e relatório em `import.js` | subagente F5 | commit `b084e52`; 113/113; `app.js` 1.232→898 |
 | 21/10/2026 | Fase 3 | F5 passo 5 | normalização, filtros, view e snapshot em módulos | subagente F5 | commit `abe373a`; 113/113; `app.js` 898→368; smoke no navegador local |
+| 21/10/2026 | Fase 3 | F4 | opção A + histórico append-only + rollback administrativo | subagente F4 | commit `2e98b33`; migration `20261021120000_excel_imports_history.sql` aplicada no remoto (`20261021163449`); 114/114; trigger validado em transação revertida |
 | | | | | | |
 | | | | | | |
 
