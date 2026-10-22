@@ -227,7 +227,7 @@ test('média móvel: sem janela fica oculta; com janela, do primeiro ao último 
   const filterOff = mensal.options.plugins.legend.labels.filter;
   assert.equal(filterOff({ datasetIndex: 1 }), false, 'legenda esconde a média sem janela');
   assert.equal(filterOff({ datasetIndex: 0 }), true, 'legenda mantém Processos');
-  assert.ok(get('monthly-insight').textContent.includes(currentMonth === 12 ? 'média' : 'média ' + currentMonth + 'm'), get('monthly-insight').textContent);
+  assert.ok(get('monthly-insight').textContent.includes('média do ano'), get('monthly-insight').textContent);
 
   // Janela 12: recorte ao intervalo — o traçado vai do primeiro ao último
   // mês com processos (Jan–Fev). Depois disso fica sem ponto, mesmo sendo
@@ -236,6 +236,7 @@ test('média móvel: sem janela fica oculta; com janela, do primeiro ao último 
 
   assert.deepEqual(plain(mensal.data.datasets[1].data), [1, 1.5, null, null, null, null, null, null, null, null, null, null]);
   assert.equal(mensal.data.datasets[1].label, 'Média móvel 12m');
+  assert.ok(get('monthly-insight').textContent.includes('média móvel 12m 1,5/mês'), get('monthly-insight').textContent);
   assert.ok(get('monthly-insight').title.includes('média móvel 12m até Fev: 1,5/mês'), get('monthly-insight').title);
 });
 
@@ -262,7 +263,7 @@ test('média móvel em ano fechado cobre os 12 meses', () => {
 });
 
 test('janelas 3/6/12 trocam uma de cada vez pela options.monthlyAverageWindow', () => {
-  const { Charts, chartByCanvas } = createCharts();
+  const { Charts, chartByCanvas, get } = createCharts();
   assert.equal(Charts.init(), true);
 
   const data = [
@@ -289,6 +290,7 @@ test('janelas 3/6/12 trocam uma de cada vez pela options.monthlyAverageWindow', 
   Charts.render(data, { isDemo: false, monthlyYear: '2020', monthlyAverageWindow: 3 });
   assert.deepEqual(plain(mensal.data.datasets[1].data), expected(3), 'janela 3');
   assert.equal(mensal.data.datasets[1].label, 'Média móvel 3m');
+  assert.ok(get('monthly-insight').textContent.includes('média móvel 3m '), 'o texto visível acompanha a janela escolhida');
 
   Charts.render(data, { isDemo: false, monthlyYear: '2020', monthlyAverageWindow: 6 });
   assert.deepEqual(plain(mensal.data.datasets[1].data), expected(6), 'janela 6 troca a 3 (uma média por vez)');
@@ -349,6 +351,7 @@ test('média do ano desenha reta na média do ano exibido, sem anos anteriores',
   const expected = [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, null, null, null, null, null, null];
   assert.deepEqual(plain(mensal.data.datasets[1].data), expected, 'reta de Jan a Jun, sem anos anteriores');
   assert.equal(mensal.data.datasets[1].label, 'Média do ano');
+  assert.ok(get('monthly-insight').textContent.includes('média do ano 0,3/mês'), get('monthly-insight').textContent);
   assert.equal(mensal.options.plugins.legend.labels.filter({ datasetIndex: 1 }), true, 'legenda mostra a média do ano');
   assert.ok(get('monthly-insight').title.includes('média do ano: 0,3/mês (12 meses)'), get('monthly-insight').title);
 
