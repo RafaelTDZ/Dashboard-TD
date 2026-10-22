@@ -626,19 +626,17 @@
         ? 'ETA/ETS ' + context.year
         : (context.usesScheduleDate ? 'ETA/ETS — todos os anos' : 'mês importado');
       const shortPeak = MONTH_NAMES[peakIndex] ? MONTH_NAMES[peakIndex].slice(0, 3) : '';
-      // Diferencia a média do ano exibido da média agregada de "Todos os anos".
+      // Diferencia a média do ano exibido da média agregada de "Todos os anos"
+      // (usado apenas no hover; o texto visível fica curto).
       const averageScope = context.year != null ? 'média do ano' : 'média do período';
-      // O texto visível acompanha a média escolhida: Ano, móvel 3/6/12 ou a
-      // média do período quando nenhuma opção está ativa.
-      const selectedLabel = yearAverage
-        ? 'média do ano'
-        : (windowSize ? 'média móvel ' + windowSize + 'm' : averageScope);
+      // O texto visível acompanha a média escolhida, mas usa só "média" para
+      // não esticar a linha; o tipo/corte ficam no hover do insight.
       const selectedValue = (windowSize && movingAverageLast != null) ? movingAverageLast : average;
       const movingDetail = (windowSize && movingAverageLast != null && movingAverageBound)
         ? ' · média móvel ' + windowSize + 'm até ' + movingAverageBound + ': ' + global.UI.formatNumber(movingAverageLast, 1) + '/mês'
         : '';
       insight.textContent = hasMonths
-        ? formatCount(total, 'processo', 'processos') + ' · pico ' + shortPeak + ' (' + global.UI.formatNumber(peak) + ') · ' + selectedLabel + ' ' + global.UI.formatNumber(selectedValue, 1) + '/mês'
+        ? formatCount(total, 'processo', 'processos') + ' · pico ' + shortPeak + ' (' + global.UI.formatNumber(peak) + ') · média ' + global.UI.formatNumber(selectedValue, 1) + '/mês'
         : 'Sem meses identificados';
       insight.title = hasMonths
         ? scope + ' · ' + formatCount(total, 'processo', 'processos') + ' · pico: ' + MONTH_NAMES[peakIndex] + ' (' + global.UI.formatNumber(peak) + ') · ' + averageScope + ': ' + global.UI.formatNumber(average, 1) + '/mês (' + divisor + ' meses)' + movingDetail + ((trailingAverage != null) ? ' · últimos 12m: ' + global.UI.formatNumber(trailingAverage, 1) + '/mês' : '') + (context.missingCount ? ' · ' + global.UI.formatNumber(context.missingCount) + ' sem ETA/ETS' : '')
