@@ -203,7 +203,7 @@ test('a série mensal zera os meses sem processos', () => {
   assert.deepEqual(plain(mensal.data.datasets[0].pointRadius), [0, 5, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0]);
 });
 
-test('média móvel: sem janela fica oculta e com janela 12 usa divisor "mês atual"', () => {
+test('média móvel: sem janela fica oculta; com janela, do primeiro ao último mês com processos', () => {
   const { Charts, chartByCanvas, get } = createCharts();
   assert.equal(Charts.init(), true);
 
@@ -229,21 +229,14 @@ test('média móvel: sem janela fica oculta e com janela 12 usa divisor "mês at
   assert.equal(filterOff({ datasetIndex: 0 }), true, 'legenda mantém Processos');
   assert.ok(get('monthly-insight').textContent.includes(currentMonth === 12 ? 'média' : 'média ' + currentMonth + 'm'), get('monthly-insight').textContent);
 
-  // Janela 12: média móvel expansiva até o mês atual; meses futuros ficam
-  // sem ponto (null) para os zeros de nov/dez não derrubarem a curva.
+  // Janela 12: recorte ao intervalo — o traçado vai do primeiro ao último
+  // mês com processos (Jan–Fev). Depois disso fica sem ponto, mesmo sendo
+  // meses correntes do ano, porque ali não existe processo.
   Charts.render(data, { isDemo: false, monthlyYear: String(currentYear), monthlyAverageWindow: 12 });
 
-  const series = [1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-  const expected = series.map((_, index) => {
-    if (index >= currentMonth) return null;
-    const start = Math.max(0, index - 12 + 1);
-    const window = series.slice(start, index + 1);
-    return Math.round((window.reduce((a, b) => a + b, 0) / window.length) * 10) / 10;
-  });
-  assert.deepEqual(plain(mensal.data.datasets[1].data), expected);
+  assert.deepEqual(plain(mensal.data.datasets[1].data), [1, 1.5, null, null, null, null, null, null, null, null, null, null]);
   assert.equal(mensal.data.datasets[1].label, 'Média móvel 12m');
-  // O último mês com dados mantém a média do período (mesmo divisor de antes).
-  assert.equal(mensal.data.datasets[1].data[currentMonth - 1], Math.round((3 / currentMonth) * 10) / 10);
+  assert.ok(get('monthly-insight').title.includes('média móvel 12m até Fev: 1,5/mês'), get('monthly-insight').title);
 });
 
 test('média móvel em ano fechado cobre os 12 meses', () => {
@@ -277,13 +270,19 @@ test('janelas 3/6/12 trocam uma de cada vez pela options.monthlyAverageWindow', 
     record({ monthlyReference: { source: 'ETA', year: 2020, month: 2 } }),
     record({ monthlyReference: { source: 'ETS', year: 2020, month: 7 } })
   ];
-  // byMonth = [0,2,0,0,0,0,1,0,0,0,0,0]
+  // byMonth = [0,2,0,0,0,0,1,0,0,0,0,0]: o traçado nasce em Fevereiro
+  // (primeiro mês com processos) e morre em Julho (último); o resto é null.
   const series = [0, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0];
-  const expected = (size) => series.map((_, index) => {
-    const start = Math.max(0, index - size + 1);
-    const window = series.slice(start, index + 1);
-    return Math.round((window.reduce((a, b) => a + b, 0) / window.length) * 10) / 10;
-  });
+  const expected = (size) => {
+    const first = series.findIndex((value) => value > 0);
+    const last = series.length - 1 - [...series].reverse().findIndex((value) => value > 0);
+    return series.map((_, index) => {
+      if (index < first || index > last) return null;
+      const start = Math.max(0, index - size + 1);
+      const window = series.slice(start, index + 1);
+      return Math.round((window.reduce((a, b) => a + b, 0) / window.length) * 10) / 10;
+    });
+  };
 
   const mensal = chartByCanvas('chart-mensal');
 
@@ -299,6 +298,35 @@ test('janelas 3/6/12 trocam uma de cada vez pela options.monthlyAverageWindow', 
   assert.deepEqual(plain(mensal.data.datasets[1].data), expected(12), 'janela 12 troca a 6 (uma média por vez)');
   assert.equal(mensal.data.datasets[1].label, 'Média móvel 12m');
   assert.equal(mensal.options.plugins.legend.labels.filter({ datasetIndex: 1 }), true, 'com janela ativa a legenda mostra a média');
+});
+
+test('a média alcança meses futuros agendados e recorta os meses vazios no fim', () => {
+  const { Charts, chartByCanvas } = createCharts();
+  assert.equal(Charts.init(), true);
+
+  const currentYear = new Date().getFullYear();
+  // Dois processos agendados para Novembro e um ETS para Dezembro: o ano
+  // corrente ainda nem chegou lá, mas os meses têm processos — a média
+  // segue os dados em vez de parar no mês corrente.
+  const data = [
+    record({ monthlyReference: { source: 'ETA', year: currentYear, month: 11 } }),
+    record({ monthlyReference: { source: 'ETA', year: currentYear, month: 11 } }),
+    record({ monthlyReference: { source: 'ETS', year: currentYear, month: 12 } })
+  ];
+  Charts.render(data, { isDemo: false, monthlyYear: String(currentYear), monthlyAverageWindow: 3 });
+
+  const mensal = chartByCanvas('chart-mensal');
+  const seriesData = mensal.data.datasets[1].data;
+  // byMonth = [0,0,0,0,0,0,0,0,0,0,2,1]: traçado só em Nov e Dez (com a
+  // janela por calendário: os 3 meses anteriores entram zerados).
+  assert.equal(seriesData[10], Math.round((2 / 3) * 10) / 10, 'novembro (janela de 3 meses do calendário)');
+  assert.equal(seriesData[11], Math.round((3 / 3) * 10) / 10, 'dezembro');
+  assert.ok(seriesData.slice(0, 10).every((value) => value === null), 'jan–out (sem processos) não recebem média');
+
+  Charts.render(data, { isDemo: false, monthlyYear: String(currentYear), monthlyAverageWindow: 6 });
+  assert.equal(mensal.data.datasets[1].data[10], Math.round((2 / 6) * 10) / 10, 'janela 6 em novembro (jul–nov, com vazios)');
+  assert.equal(mensal.data.datasets[1].data[11], Math.round((3 / 6) * 10) / 10, 'janela 6 em dezembro (ago)–dez');
+  assert.equal(mensal.data.datasets[1].label, 'Média móvel 6m');
 });
 
 test('render sem dados zera todas as séries', () => {

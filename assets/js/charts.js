@@ -551,15 +551,25 @@
 
     // Média móvel opcional (3/6/12 meses): a janela desliza mês a mês sobre o
     // período exibido e nos primeiros pontos usa só os meses disponíveis.
-    // Ano corrente: para no mês atual para os meses futuros (sem ETA/ETS,
-    // zerados) não derrubarem a curva — mesma regra da média do período.
+    // Recorte visual: a linha só é desenhada do primeiro ao último mês COM
+    // processos (byMonth > 0); meses vazios fora desse intervalo — inclusive
+    // os futuros, sem ETA/ETS — ficam sem ponto, em vez de esticarem o
+    // traçado. Dentro do intervalo a janela continua por calendário.
     const windowSize = (monthlyAverageWindow === 3 || monthlyAverageWindow === 6 || monthlyAverageWindow === 12) ? monthlyAverageWindow : null;
     let movingAverage = null;
     let movingAverageLast = null;
     let movingAverageMax = 0;
+    let movingAverageBound = null;
     if (windowSize && hasMonths) {
+      let firstWithData = -1;
+      let lastWithData = -1;
+      byMonth.forEach(function (value, index) {
+        if (value <= 0) return;
+        if (firstWithData === -1) firstWithData = index;
+        lastWithData = index;
+      });
       movingAverage = byMonth.map(function (_, index) {
-        if (index >= divisor) return null;
+        if (index < firstWithData || index > lastWithData) return null;
         const start = Math.max(0, index - windowSize + 1);
         let windowTotal = 0;
         for (let probe = start; probe <= index; probe++) windowTotal += byMonth[probe];
@@ -568,7 +578,8 @@
       movingAverage.forEach(function (value) {
         if (value != null && value > movingAverageMax) movingAverageMax = value;
       });
-      movingAverageLast = movingAverage[divisor - 1];
+      movingAverageLast = movingAverage[lastWithData];
+      movingAverageBound = MONTH_NAMES[lastWithData] ? MONTH_NAMES[lastWithData].slice(0, 3) : null;
     }
 
     dataset.data = byMonth;
@@ -596,8 +607,8 @@
         : (context.usesScheduleDate ? 'ETA/ETS — todos os anos' : 'mês importado');
       const shortPeak = MONTH_NAMES[peakIndex] ? MONTH_NAMES[peakIndex].slice(0, 3) : '';
       const averageLabel = divisor === 12 ? 'média' : 'média ' + divisor + 'm';
-      const movingDetail = (windowSize && movingAverageLast != null)
-        ? ' · média móvel ' + windowSize + 'm (mês atual): ' + global.UI.formatNumber(movingAverageLast, 1) + '/mês'
+      const movingDetail = (windowSize && movingAverageLast != null && movingAverageBound)
+        ? ' · média móvel ' + windowSize + 'm até ' + movingAverageBound + ': ' + global.UI.formatNumber(movingAverageLast, 1) + '/mês'
         : '';
       insight.textContent = hasMonths
         ? formatCount(total, 'processo', 'processos') + ' · pico ' + shortPeak + ' (' + global.UI.formatNumber(peak) + ') · ' + averageLabel + ' ' + global.UI.formatNumber(average, 1) + '/mês'
