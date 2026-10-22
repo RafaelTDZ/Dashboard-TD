@@ -36,6 +36,12 @@
     return mode === 'qtd' ? 'qtd' : 'valor';
   }
 
+  // Janela da média móvel do gráfico mensal: 3, 6 ou 12 meses; null = desligada.
+  function normalizeMonthlyAverageWindow(value) {
+    const scale = Number(value);
+    return (scale === 3 || scale === 6 || scale === 12) ? scale : null;
+  }
+
   function normalizeUiStyle(style) {
     return style === 'modern' ? 'modern' : 'classic';
   }
@@ -207,6 +213,10 @@
     if (snapshot.meta.parserVersion != null && (!Number.isFinite(Number(snapshot.meta.parserVersion)) || Number(snapshot.meta.parserVersion) < 1)) return false;
     if (snapshot.meta.loadedAt != null && Number.isNaN(new Date(snapshot.meta.loadedAt).getTime())) return false;
     if (snapshot.analistaMode != null && snapshot.analistaMode !== 'valor' && snapshot.analistaMode !== 'qtd') return false;
+    if (snapshot.monthlyAverageWindow != null) {
+      const monthlyAverageWindow = Number(snapshot.monthlyAverageWindow);
+      if (monthlyAverageWindow !== 3 && monthlyAverageWindow !== 6 && monthlyAverageWindow !== 12) return false;
+    }
     if (snapshot.uiStyle != null && snapshot.uiStyle !== 'classic' && snapshot.uiStyle !== 'modern') return false;
     return true;
   }
@@ -216,6 +226,7 @@
     defaultFilters: defaultFilters,
     normalizeFilters: normalizeFilters,
     normalizeAnalistaMode: normalizeAnalistaMode,
+    normalizeMonthlyAverageWindow: normalizeMonthlyAverageWindow,
     normalizeUiStyle: normalizeUiStyle,
     isValidSnapshot: isValidSnapshot,
     normalizeRecordKey: normalizeRecordKey,

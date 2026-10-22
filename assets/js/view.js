@@ -28,7 +28,8 @@
           monthlyYear: state.filters.ano,
           isDemo: state.isDemo,
           uiStyle: nextStyle,
-          analistaMode: state.analistaMode
+          analistaMode: state.analistaMode,
+          monthlyAverageWindow: state.monthlyAverageWindow
         });
       }
     }
@@ -67,6 +68,33 @@
       schedulePersist();
     }
 
+    function applyMonthlyAverageUI() {
+      ['3', '6', '12'].forEach(function (scale) {
+        var button = document.getElementById('monthly-avg-' + scale);
+        if (!button) return;
+        var active = state.monthlyAverageWindow === Number(scale);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        button.classList.toggle('bg-brand-600', active);
+        button.classList.toggle('text-white', active);
+        button.classList.toggle('shadow', active);
+        button.classList.toggle('text-slate-400', !active);
+        button.classList.toggle('hover:text-white', !active);
+      });
+    }
+
+    function setMonthlyAverageWindow(value) {
+      var requested = Number(value);
+      requested = (requested === 3 || requested === 6 || requested === 12) ? requested : null;
+      // No máximo uma média ativa: escolher outra janela troca direto;
+      // repetir a janela ativa desliga (fica sem média no gráfico).
+      var next = (requested !== null && requested === state.monthlyAverageWindow) ? null : requested;
+      if (state.monthlyAverageWindow === next) return;
+      state.monthlyAverageWindow = next;
+      applyMonthlyAverageUI();
+      refresh();
+      schedulePersist();
+    }
+
     function switchTab(tabName) {
       ['dashboard', 'data', 'integration'].forEach(function (tab) {
         var panel = document.getElementById('tab-' + tab);
@@ -90,6 +118,8 @@
       applyVisualStyle: applyVisualStyle,
       applyAnalistaModeUI: applyAnalistaModeUI,
       setAnalistaMode: setAnalistaMode,
+      applyMonthlyAverageUI: applyMonthlyAverageUI,
+      setMonthlyAverageWindow: setMonthlyAverageWindow,
       switchTab: switchTab
     };
   }

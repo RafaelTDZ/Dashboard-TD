@@ -253,11 +253,16 @@
 
                 <div class="ui-chart-card lg:col-span-5 bg-slate-800/60 border border-slate-700/50 rounded-2xl p-5 flex flex-col">
                     <div class="flex flex-col gap-1 mb-4">
-                        <div>
+                        <div class="flex flex-wrap items-center justify-between gap-2">
                             <h3 class="font-bold text-white text-sm flex items-center gap-2">
                                 <i class="fa-solid fa-chart-line text-emerald-400" aria-hidden="true"></i>
                                 Evolução Mensal de Processos
                             </h3>
+                            <div class="flex items-center gap-1 rounded-lg border border-slate-700/70 bg-slate-900/70 p-0.5" role="group" aria-label="Média móvel do gráfico: escolha 3M, 6M ou 12M; no máximo uma por vez">
+                                <button id="monthly-avg-3" type="button" data-monthly-avg="3" aria-pressed="false" class="px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-400 hover:text-white transition" title="Média móvel dos últimos 3 meses">3M</button>
+                                <button id="monthly-avg-6" type="button" data-monthly-avg="6" aria-pressed="false" class="px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-400 hover:text-white transition" title="Média móvel dos últimos 6 meses">6M</button>
+                                <button id="monthly-avg-12" type="button" data-monthly-avg="12" aria-pressed="false" class="px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-400 hover:text-white transition" title="Média móvel dos últimos 12 meses">12M</button>
+                            </div>
                         </div>
                         <div class="leading-snug">
                             <span id="monthly-insight" class="block text-[11px] font-semibold text-emerald-300" aria-live="polite">Sem dados</span>

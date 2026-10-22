@@ -28,6 +28,7 @@
     isDemo: true,
     uiStyle: 'classic',
     analistaMode: 'valor',
+    monthlyAverageWindow: null,
     filters: global.DashboardState.defaultFilters(),
     search: '',
     sort: { key: 'month', dir: 1 },
@@ -158,6 +159,8 @@
   function applyVisualStyle(style, refreshCharts) { view.applyVisualStyle(style, refreshCharts); }
   function applyAnalistaModeUI() { view.applyAnalistaModeUI(); }
   function setAnalistaMode(mode) { view.setAnalistaMode(mode); }
+  function applyMonthlyAverageUI() { view.applyMonthlyAverageUI(); }
+  function setMonthlyAverageWindow(value) { view.setMonthlyAverageWindow(value); }
   function switchTab(tabName) { view.switchTab(tabName); }
 
   function setMonthMenuOpen(open) { filters.setMonthMenuOpen(open); }
@@ -184,6 +187,7 @@
       bindEvents();
       applyVisualStyle('classic', false);
       applyAnalistaModeUI();
+      applyMonthlyAverageUI();
       // Garante o estado transitório mesmo se o HTML vier de um cache antigo.
       hideStatusBanner();
     } catch (error) {
@@ -241,6 +245,10 @@
 
     document.querySelectorAll('[data-analista-mode]').forEach(function (button) {
       button.addEventListener('click', function () { setAnalistaMode(button.dataset.analistaMode); });
+    });
+
+    document.querySelectorAll('[data-monthly-avg]').forEach(function (button) {
+      button.addEventListener('click', function () { setMonthlyAverageWindow(button.dataset.monthlyAvg); });
     });
 
     document.querySelector('.tablist').addEventListener('keydown', function (event) {
@@ -356,7 +364,7 @@
     updateBanner();
     updateKPIs(state.filtered);
     if (global.Charts) {
-      try { global.Charts.render(state.filtered, { monthlyYear: state.filters.ano, isDemo: state.isDemo, uiStyle: state.uiStyle, analistaMode: state.analistaMode }); }
+      try { global.Charts.render(state.filtered, { monthlyYear: state.filters.ano, isDemo: state.isDemo, uiStyle: state.uiStyle, analistaMode: state.analistaMode, monthlyAverageWindow: state.monthlyAverageWindow }); }
       catch (error) {
         console.error('Falha ao atualizar os gráficos.', error);
         global.UI.toast('Os dados foram atualizados, mas um gráfico não pôde ser redesenhado.', 'warning', 'Visualização parcial');
