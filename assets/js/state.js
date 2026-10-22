@@ -36,8 +36,10 @@
     return mode === 'qtd' ? 'qtd' : 'valor';
   }
 
-  // Janela da média móvel do gráfico mensal: 3, 6 ou 12 meses; null = desligada.
+  // Média do gráfico mensal: 3, 6 ou 12 meses móveis, 'ano' para a média do
+  // ano exibido; null = desligada.
   function normalizeMonthlyAverageWindow(value) {
+    if (value === 'ano') return 'ano';
     const scale = Number(value);
     return (scale === 3 || scale === 6 || scale === 12) ? scale : null;
   }
@@ -214,8 +216,9 @@
     if (snapshot.meta.loadedAt != null && Number.isNaN(new Date(snapshot.meta.loadedAt).getTime())) return false;
     if (snapshot.analistaMode != null && snapshot.analistaMode !== 'valor' && snapshot.analistaMode !== 'qtd') return false;
     if (snapshot.monthlyAverageWindow != null) {
-      const monthlyAverageWindow = Number(snapshot.monthlyAverageWindow);
-      if (monthlyAverageWindow !== 3 && monthlyAverageWindow !== 6 && monthlyAverageWindow !== 12) return false;
+      const window = snapshot.monthlyAverageWindow;
+      const scale = Number(window);
+      if (window !== 'ano' && scale !== 3 && scale !== 6 && scale !== 12) return false;
     }
     if (snapshot.uiStyle != null && snapshot.uiStyle !== 'classic' && snapshot.uiStyle !== 'modern') return false;
     return true;

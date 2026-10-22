@@ -351,6 +351,16 @@ test('valida snapshots e normaliza filtros restaurados', () => {
   assert.equal(DashboardState.isValidSnapshot({ ...valid, version: 2 }), false);
   assert.equal(DashboardState.isValidSnapshot({ ...valid, records: [null] }), false);
   assert.equal(DashboardState.isValidSnapshot({ ...valid, meta: { ...valid.meta, loadedAt: '2024-13-01' } }), false);
+  // Média do gráfico: aceita 3/6/12 meses e 'ano'; qualquer outra coisa é inválida.
+  assert.equal(DashboardState.normalizeMonthlyAverageWindow('ano'), 'ano');
+  assert.equal(DashboardState.normalizeMonthlyAverageWindow('6'), 6);
+  assert.equal(DashboardState.normalizeMonthlyAverageWindow(12), 12);
+  assert.equal(DashboardState.normalizeMonthlyAverageWindow(5), null);
+  assert.equal(DashboardState.normalizeMonthlyAverageWindow('12m'), null);
+  assert.equal(DashboardState.isValidSnapshot({ ...valid, monthlyAverageWindow: 'ano' }), true);
+  assert.equal(DashboardState.isValidSnapshot({ ...valid, monthlyAverageWindow: 3 }), true);
+  assert.equal(DashboardState.isValidSnapshot({ ...valid, monthlyAverageWindow: 5 }), false);
+  assert.equal(DashboardState.isValidSnapshot({ ...valid, monthlyAverageWindow: '12m' }), false);
 
   const filters = DashboardState.normalizeFilters(
     { ano: '2099', mes: '99', analista: 'Ana', situacao: 'Concluida', operacao: 42 },

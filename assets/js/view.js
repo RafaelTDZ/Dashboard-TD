@@ -69,24 +69,43 @@
     }
 
     function applyMonthlyAverageUI() {
-      ['3', '6', '12'].forEach(function (scale) {
-        var button = document.getElementById('monthly-avg-' + scale);
+      var yearAverageAvailable = String(state.filters.ano || 'ALL') !== 'ALL';
+      [
+        { id: 'monthly-avg-3', value: 3 },
+        { id: 'monthly-avg-6', value: 6 },
+        { id: 'monthly-avg-12', value: 12 },
+        { id: 'monthly-avg-ano', value: 'ano' }
+      ].forEach(function (option) {
+        var button = document.getElementById(option.id);
         if (!button) return;
-        var active = state.monthlyAverageWindow === Number(scale);
+        // "Ano" só faz sentido com um ano concreto selecionado no filtro.
+        var disabled = option.value === 'ano' && !yearAverageAvailable;
+        var active = !disabled && state.monthlyAverageWindow === option.value;
+        button.disabled = disabled;
+        button.style.opacity = disabled ? '0.45' : '';
         button.setAttribute('aria-pressed', active ? 'true' : 'false');
         button.classList.toggle('bg-brand-600', active);
         button.classList.toggle('text-white', active);
         button.classList.toggle('shadow', active);
         button.classList.toggle('text-slate-400', !active);
         button.classList.toggle('hover:text-white', !active);
+        if (disabled) button.title = 'Média do ano indisponível em "Todos os anos" — selecione um ano';
+        else if (option.value === 'ano') button.title = 'Média do ano exibido (não usa anos anteriores)';
       });
     }
 
     function setMonthlyAverageWindow(value) {
-      var requested = Number(value);
-      requested = (requested === 3 || requested === 6 || requested === 12) ? requested : null;
-      // No máximo uma média ativa: escolher outra janela troca direto;
-      // repetir a janela ativa desliga (fica sem média no gráfico).
+      var requested = null;
+      if (value === 'ano') {
+        // Média do ano exige um ano concreto no filtro.
+        if (String(state.filters.ano || 'ALL') === 'ALL') return;
+        requested = 'ano';
+      } else {
+        var numeric = Number(value);
+        requested = (numeric === 3 || numeric === 6 || numeric === 12) ? numeric : null;
+      }
+      // No máximo uma média ativa: escolher outra opção troca direto;
+      // repetir a opção ativa desliga (fica sem média no gráfico).
       var next = (requested !== null && requested === state.monthlyAverageWindow) ? null : requested;
       if (state.monthlyAverageWindow === next) return;
       state.monthlyAverageWindow = next;

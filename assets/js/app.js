@@ -360,6 +360,9 @@
   }
 
   function refresh() {
+    // O filtro de ano habilita/desabilita a média do ano; atualiza os botões
+    // antes de redesenhar (ex.: "Todos os anos" desliga a opção "Ano").
+    applyMonthlyAverageUI();
     state.filtered = getVisibleData();
     updateBanner();
     updateKPIs(state.filtered);

@@ -329,6 +329,51 @@ test('a média alcança meses futuros agendados e recorta os meses vazios no fim
   assert.equal(mensal.data.datasets[1].label, 'Média móvel 6m');
 });
 
+test('média do ano desenha reta na média do ano exibido, sem anos anteriores', () => {
+  const { Charts, chartByCanvas, get } = createCharts();
+  assert.equal(Charts.init(), true);
+
+  // O processo de Dez/2019 fica fora da conta: a média é só do ano exibido.
+  const data = [
+    record({ monthlyReference: { source: 'ETA', year: 2019, month: 12 } }),
+    record({ monthlyReference: { source: 'ETA', year: 2020, month: 1 } }),
+    record({ monthlyReference: { source: 'ETA', year: 2020, month: 1 } }),
+    record({ monthlyReference: { source: 'ETA', year: 2020, month: 6 } })
+  ];
+  Charts.render(data, { isDemo: false, monthlyYear: '2020', monthlyAverageWindow: 'ano' });
+
+  const mensal = chartByCanvas('chart-mensal');
+  // byMonth 2020 = [2,0,0,0,0,1,0,0,0,0,0,0]: ano fechado divide por 12,
+  // então a reta fica em 3/12 = 0,3 de Janeiro (primeiro mês com processos)
+  // a Junho (último).
+  const expected = [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, null, null, null, null, null, null];
+  assert.deepEqual(plain(mensal.data.datasets[1].data), expected, 'reta de Jan a Jun, sem anos anteriores');
+  assert.equal(mensal.data.datasets[1].label, 'Média do ano');
+  assert.equal(mensal.options.plugins.legend.labels.filter({ datasetIndex: 1 }), true, 'legenda mostra a média do ano');
+  assert.ok(get('monthly-insight').title.includes('média do ano: 0,3/mês (12 meses)'), get('monthly-insight').title);
+
+  // "Todos os anos" não tem um ano concreto: a média do ano não é desenhada.
+  Charts.render(data, { isDemo: false, monthlyYear: 'ALL', monthlyAverageWindow: 'ano' });
+  assert.deepEqual(plain(mensal.data.datasets[1].data), Array(12).fill(null));
+  assert.equal(mensal.options.plugins.legend.labels.filter({ datasetIndex: 1 }), false, 'sem traçado a legenda esconde a média');
+
+  // Ano corrente: mesmo divisor do insight (meses já passados) e recorte que
+  // alcança o mês futuro com processo agendado.
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const monthsElapsed = now.getMonth() + 1;
+  const currentData = [
+    record({ monthlyReference: { source: 'ETA', year: currentYear, month: 2 } }),
+    record({ monthlyReference: { source: 'ETA', year: currentYear, month: 11 } })
+  ];
+  Charts.render(currentData, { isDemo: false, monthlyYear: String(currentYear), monthlyAverageWindow: 'ano' });
+  const flat = Math.round((2 / monthsElapsed) * 10) / 10;
+  assert.equal(mensal.data.datasets[1].data[1], flat, 'fevereiro (média do ano)');
+  assert.equal(mensal.data.datasets[1].data[10], flat, 'novembro agendado também recebe a reta');
+  assert.equal(mensal.data.datasets[1].data[0], null, 'janeiro vazio fica fora do recorte');
+  assert.equal(mensal.data.datasets[1].label, 'Média do ano');
+});
+
 test('render sem dados zera todas as séries', () => {
   const { Charts, chartByCanvas } = createCharts();
   assert.equal(Charts.init(), true);
