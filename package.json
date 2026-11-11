@@ -11,7 +11,7 @@
     "build:css": "npx --yes tailwindcss@3.4.16 -c tailwind.config.cjs -i assets/css/tailwind.src.css -o assets/css/tailwind.css --minify"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",

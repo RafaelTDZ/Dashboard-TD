@@ -9,7 +9,7 @@ Dashboard estático para visualização e importação de dados de processos de 
 
 ## Executar localmente
 
-O projeto não exige `npm install` nem build. Com Node.js 18+ instalado:
+O projeto não exige `npm install` nem build. Com Node.js 22+ (LTS, na versão patch mais recente) instalado:
 
 ```powershell
 node tools/serve.mjs 8765
