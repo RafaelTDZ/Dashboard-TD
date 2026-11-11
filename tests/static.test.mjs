@@ -232,15 +232,23 @@ test('coluna Reg DI ordena por data cronológica e não por texto', () => {
   assert.doesNotMatch(filtersSource, /case 'regDi': return String\(item\.regDi/);
 });
 
-test('média mensal usa janela móvel de 12 meses até o mês atual', () => {
+test('médias do gráfico mensal (3M/6M/12M/ano) e média dos últimos 12 meses no insight', () => {
   const charts = readFileSync(join(root, 'assets', 'js', 'charts.js'), 'utf8');
   assert.match(charts, /const currentMonthIndex = now\.getFullYear\(\) \* 12 \+ now\.getMonth\(\)/);
   assert.match(charts, /const windowStartIndex = currentMonthIndex - 11/);
   assert.match(charts, /absolute >= windowStartIndex && absolute <= currentMonthIndex/);
   assert.match(charts, /trailingAverage = usesScheduleDate \? trailingTotal \/ 12 : null/);
   assert.match(charts, /context\.trailingAverage != null/);
-  assert.match(charts, /label: 'Média 12m'/);
-  assert.match(charts, /média 12m:/);
+  // Controle segmentado: no máximo uma média ativa por vez.
+  assert.match(charts, /let monthlyAverageWindow = null/);
+  assert.match(charts, /label: 'Média móvel'/);
+  assert.match(charts, /'Média móvel ' \+ windowSize \+ 'm'/);
+  // Média do ano exibido: opção própria no HTML, sem dados de anos anteriores.
+  assert.match(html, /id="monthly-avg-ano"[^>]*data-monthly-avg="ano"/);
+  assert.match(charts, /const yearAverage = monthlyAverageWindow === 'ano' && context\.year != null/);
+  assert.match(charts, /'Média do ano'/);
+  assert.match(charts, /média do ano/);
+  assert.match(viewSource, /option\.value === 'ano' && !yearAverageAvailable/);
 });
 
 test('cards de agente aplicam apelidos confirmados além da caixa/acento', () => {

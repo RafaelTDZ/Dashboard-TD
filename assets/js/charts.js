@@ -39,6 +39,12 @@
   let currentStyle = 'classic';
   let COLORS = Object.assign({}, COLOR_PALETTES.classic);
   let analistaMode = 'valor';
+  // Média do gráfico mensal: 3, 6 ou 12 meses móveis, 'ano' para a média do
+  // ano exibido (null = desligada). No máximo uma ativa por vez.
+  let monthlyAverageWindow = null;
+  // Entrada da média na legenda: só aparece quando o traçado tem ao menos um
+  // ponto (ex.: a média do ano não é desenhada em "Todos os anos").
+  let averageLineVisible = false;
   const charts = {};
 
   const MONTH_NAMES = [
@@ -155,6 +161,15 @@
     analistaMode = mode === 'qtd' ? 'qtd' : 'valor';
   }
 
+  function setMonthlyAverageWindow(scale) {
+    if (scale === 'ano') {
+      monthlyAverageWindow = 'ano';
+      return;
+    }
+    const size = Number(scale);
+    monthlyAverageWindow = (size === 3 || size === 6 || size === 12) ? size : null;
+  }
+
   function destroyAll() {
     Object.keys(charts).forEach(function (key) {
       if (charts[key] && typeof charts[key].destroy === 'function') charts[key].destroy();
@@ -235,8 +250,8 @@
           pointBorderWidth: 2,
           clip: 8
         }, {
-          label: 'Média 12m',
-          data: Array(12).fill(0),
+          label: 'Média móvel',
+          data: Array(12).fill(null),
           borderColor: 'rgba(148,163,184,0.85)',
           backgroundColor: 'transparent',
           fill: false,
@@ -255,7 +270,12 @@
             display: true,
             position: 'top',
             align: 'end',
-            labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 12, boxHeight: 2, usePointStyle: true, pointStyle: 'line' }
+            labels: {
+              // Mantém "Processos" sempre visível; a entrada da média só
+              // aparece quando alguma janela (3M/6M/12M) está ativa.
+              filter: function (item) { return item.datasetIndex === 0 || averageLineVisible; },
+              color: '#94a3b8', font: { size: 10 }, boxWidth: 12, boxHeight: 2, usePointStyle: true, pointStyle: 'line'
+            }
           },
           tooltip: {
             displayColors: false,
@@ -268,7 +288,11 @@
             callbacks: {
               title: function (items) { return items.length ? MONTH_NAMES[items[0].dataIndex] : ''; },
               label: function (ctx) {
-                if (ctx.datasetIndex === 1 || (ctx.dataset && ctx.dataset.label && ctx.dataset.label.indexOf('Média') === 0)) return ' Média 12m: ' + global.UI.formatNumber(ctx.parsed.y, 1) + '/mês';
+                if (ctx.datasetIndex === 1 || (ctx.dataset && ctx.dataset.label && ctx.dataset.label.indexOf('Média') === 0)) {
+                  const name = (ctx.dataset && ctx.dataset.label) ? ctx.dataset.label : 'Média';
+                  if (ctx.parsed.y == null) return '';
+                  return ' ' + name + ': ' + global.UI.formatNumber(ctx.parsed.y, 1) + '/mês';
+                }
                 return ' ' + formatCount(ctx.parsed.y, 'processo', 'processos');
               }
             }
@@ -532,6 +556,52 @@
     const average = hasMonths ? total / divisor : 0;
     const trailingAverage = context.trailingAverage != null ? context.trailingAverage : null;
 
+    // Média opcional do gráfico: janelas móveis 3/6/12 ou a média do ano
+    // exibido ('ano'). Recorte visual: a linha só é desenhada do primeiro ao
+    // último mês COM processos (byMonth > 0); meses vazios fora desse
+    // intervalo — inclusive os futuros, sem ETA/ETS — ficam sem ponto.
+    // - 3/6/12: a janela desliza por calendário, com janela parcial no início.
+    // - ano: reta na média do ano exibido (mesmo divisor do insight) e nunca
+    //   usa meses de anos anteriores; só vale para um ano concreto.
+    const windowSize = (monthlyAverageWindow === 3 || monthlyAverageWindow === 6 || monthlyAverageWindow === 12) ? monthlyAverageWindow : null;
+    const yearAverage = monthlyAverageWindow === 'ano' && context.year != null;
+    let movingAverage = null;
+    let movingAverageLast = null;
+    let movingAverageMax = 0;
+    let movingAverageBound = null;
+    if ((windowSize || yearAverage) && hasMonths) {
+      let firstWithData = -1;
+      let lastWithData = -1;
+      byMonth.forEach(function (value, index) {
+        if (value <= 0) return;
+        if (firstWithData === -1) firstWithData = index;
+        lastWithData = index;
+      });
+      if (yearAverage) {
+        const flatAverage = Math.round(average * 10) / 10;
+        movingAverage = byMonth.map(function (_, index) {
+          if (index < firstWithData || index > lastWithData) return null;
+          return flatAverage;
+        });
+        movingAverageLast = flatAverage;
+        movingAverageMax = flatAverage;
+      } else {
+        movingAverage = byMonth.map(function (_, index) {
+          if (index < firstWithData || index > lastWithData) return null;
+          const start = Math.max(0, index - windowSize + 1);
+          let windowTotal = 0;
+          for (let probe = start; probe <= index; probe++) windowTotal += byMonth[probe];
+          return Math.round((windowTotal / (index - start + 1)) * 10) / 10;
+        });
+        movingAverage.forEach(function (value) {
+          if (value != null && value > movingAverageMax) movingAverageMax = value;
+        });
+        movingAverageLast = movingAverage[lastWithData];
+        movingAverageBound = MONTH_NAMES[lastWithData] ? MONTH_NAMES[lastWithData].slice(0, 3) : null;
+      }
+    }
+    averageLineVisible = !!(movingAverage && movingAverage.some(function (value) { return value != null; }));
+
     dataset.data = byMonth;
     dataset.pointRadius = byMonth.map(function (value) {
       return value > 0 ? (value === peak ? 5 : 3) : 0;
@@ -543,10 +613,12 @@
       return value > 0 && value === peak ? COLORS.amber : COLORS.emerald;
     });
     if (averageDataset) {
-      averageDataset.data = Array(12).fill(hasMonths ? Math.round(average * 10) / 10 : 0);
-      averageDataset.label = divisor === 12 ? 'Média 12m' : 'Média ' + divisor + 'm';
+      averageDataset.data = movingAverage || Array(12).fill(null);
+      averageDataset.label = yearAverage ? 'Média do ano' : (windowSize ? 'Média móvel ' + windowSize + 'm' : 'Média móvel');
     }
-    charts.mensal.options.scales.y.suggestedMax = hasMonths ? Math.max(peak + 1, Math.ceil(Math.max(peak, average) * 1.15)) : 1;
+    charts.mensal.options.scales.y.suggestedMax = hasMonths
+      ? Math.max(peak + 1, Math.ceil(Math.max(peak, movingAverage ? movingAverageMax : average) * 1.15))
+      : 1;
 
     const insight = document.getElementById('monthly-insight');
     if (insight) {
@@ -554,12 +626,20 @@
         ? 'ETA/ETS ' + context.year
         : (context.usesScheduleDate ? 'ETA/ETS — todos os anos' : 'mês importado');
       const shortPeak = MONTH_NAMES[peakIndex] ? MONTH_NAMES[peakIndex].slice(0, 3) : '';
-      const averageLabel = divisor === 12 ? 'média' : 'média ' + divisor + 'm';
+      // Diferencia a média do ano exibido da média agregada de "Todos os anos"
+      // (usado apenas no hover; o texto visível fica curto).
+      const averageScope = context.year != null ? 'média do ano' : 'média do período';
+      // O texto visível acompanha a média escolhida, mas usa só "média" para
+      // não esticar a linha; o tipo/corte ficam no hover do insight.
+      const selectedValue = (windowSize && movingAverageLast != null) ? movingAverageLast : average;
+      const movingDetail = (windowSize && movingAverageLast != null && movingAverageBound)
+        ? ' · média móvel ' + windowSize + 'm até ' + movingAverageBound + ': ' + global.UI.formatNumber(movingAverageLast, 1) + '/mês'
+        : '';
       insight.textContent = hasMonths
-        ? formatCount(total, 'processo', 'processos') + ' · pico ' + shortPeak + ' (' + global.UI.formatNumber(peak) + ') · ' + averageLabel + ' ' + global.UI.formatNumber(average, 1) + '/mês'
+        ? formatCount(total, 'processo', 'processos') + ' · pico ' + shortPeak + ' (' + global.UI.formatNumber(peak) + ') · média ' + global.UI.formatNumber(selectedValue, 1) + '/mês'
         : 'Sem meses identificados';
       insight.title = hasMonths
-        ? scope + ' · ' + formatCount(total, 'processo', 'processos') + ' · pico: ' + MONTH_NAMES[peakIndex] + ' (' + global.UI.formatNumber(peak) + ') · média 12m: ' + global.UI.formatNumber(average, 1) + '/mês (' + divisor + ' meses)' + ((trailingAverage != null) ? ' · últimos 12m: ' + global.UI.formatNumber(trailingAverage, 1) + '/mês' : '') + (context.missingCount ? ' · ' + global.UI.formatNumber(context.missingCount) + ' sem ETA/ETS' : '')
+        ? scope + ' · ' + formatCount(total, 'processo', 'processos') + ' · pico: ' + MONTH_NAMES[peakIndex] + ' (' + global.UI.formatNumber(peak) + ') · ' + averageScope + ': ' + global.UI.formatNumber(average, 1) + '/mês (' + divisor + ' meses)' + movingDetail + ((trailingAverage != null) ? ' · últimos 12m: ' + global.UI.formatNumber(trailingAverage, 1) + '/mês' : '') + (context.missingCount ? ' · ' + global.UI.formatNumber(context.missingCount) + ' sem ETA/ETS' : '')
         : scope + ' · sem meses identificados' + (context.missingCount ? ' · ' + global.UI.formatNumber(context.missingCount) + ' sem ETA/ETS' : '');
       // Texto visível curto; detalhes completos no hover/título e no resumo acessível.
       insight.className = hasMonths
@@ -567,7 +647,7 @@
         : 'block text-[11px] font-semibold text-slate-400';
     }
 
-    return { total: total, activeMonths: activeMonths, peak: peak, peakIndex: peakIndex, hasMonths: hasMonths, average: average, divisor: divisor, trailingAverage: trailingAverage, missingCount: context.missingCount || 0 };
+    return { total: total, activeMonths: activeMonths, peak: peak, peakIndex: peakIndex, hasMonths: hasMonths, average: average, divisor: divisor, activeWindow: yearAverage ? 'ano' : windowSize, movingAverageLast: movingAverageLast, trailingAverage: trailingAverage, missingCount: context.missingCount || 0 };
   }
 
   function summarizeEntries(prefix, entries, formatter) {
@@ -580,6 +660,7 @@
   function render(data, options) {
     if (options && options.uiStyle) setStyle(options.uiStyle);
     if (options && options.analistaMode) setAnalistaMode(options.analistaMode);
+    if (options) setMonthlyAverageWindow(options.monthlyAverageWindow);
     if (!charts.analistas) return;
     setEmpty(data);
     if (!data || !data.length) {
@@ -668,11 +749,14 @@
     const periodAverageText = monthlyStats.hasMonths
       ? ' Média do período exibido (' + monthlyStats.divisor + ' meses): ' + global.UI.formatNumber(monthlyStats.average, 1) + ' processo(s)/mês.'
       : '';
+    const movingAverageText = monthlyStats.activeWindow === 'ano'
+      ? ' Média do ano exibida (linha tracejada).'
+      : (monthlyStats.activeWindow ? ' Média móvel ' + monthlyStats.activeWindow + 'm exibida (linha tracejada).' : '');
     setSummary('chart-mensal-summary', 'Processos por ' + monthlyScope + ': ' + byMonth.map(function (value, index) {
       return value ? MONTH_NAMES[index] + ' (' + global.UI.formatNumber(value) + ')' : null;
     }).filter(Boolean).join('; ') + (monthlyStats.hasMonths
       ? '. Total de ' + formatCount(monthlyStats.total, 'processo', 'processos') + ' em ' + formatCount(monthlyStats.activeMonths, 'mês', 'meses') + '; pico em ' + MONTH_NAMES[monthlyStats.peakIndex] + '.' + periodAverageText
-      : 'sem meses identificados.') + trailingSummary);
+      : 'sem meses identificados.') + movingAverageText + trailingSummary);
 
     const byOrigem = topEntries(countBy(data, 'origem'), 5);
     charts.origem.data.labels = byOrigem.map(function (entry) { return entry[0]; });

@@ -199,6 +199,7 @@
         filters: state.filters,
         search: state.search,
         analistaMode: state.analistaMode,
+        monthlyAverageWindow: state.monthlyAverageWindow,
         uiStyle: state.uiStyle
       };
     }
@@ -318,6 +319,7 @@
               if (cachedSnapshot.filters) chosen.filters = cachedSnapshot.filters;
               if (typeof cachedSnapshot.search === 'string') chosen.search = cachedSnapshot.search;
               if (cachedSnapshot.analistaMode != null) chosen.analistaMode = cachedSnapshot.analistaMode;
+              if (cachedSnapshot.monthlyAverageWindow != null) chosen.monthlyAverageWindow = cachedSnapshot.monthlyAverageWindow;
               if (cachedSnapshot.uiStyle != null) chosen.uiStyle = cachedSnapshot.uiStyle;
             }
             // Mantém o cache local alinhado com o que foi restaurado.

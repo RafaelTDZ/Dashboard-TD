@@ -38,11 +38,15 @@
       if (snapshot.analistaMode != null) {
         state.analistaMode = DashboardState.normalizeAnalistaMode(snapshot.analistaMode);
       }
+      if (snapshot.monthlyAverageWindow != null) {
+        state.monthlyAverageWindow = DashboardState.normalizeMonthlyAverageWindow(snapshot.monthlyAverageWindow);
+      }
       if (snapshot.uiStyle != null) {
         state.uiStyle = DashboardState.normalizeUiStyle(snapshot.uiStyle);
         view.applyVisualStyle(state.uiStyle, false);
       }
       view.applyAnalistaModeUI();
+      view.applyMonthlyAverageUI();
     }
 
     function resetToDemoState() {
