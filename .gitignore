@@ -7,6 +7,10 @@ node_modules/
 # Ferramentas locais de agentes (decisão D4: não versionar)
 .agents/
 
+# Segredos locais (só o modelo .env.example é versionado)
+.env
+.env.local
+
 # Logs e artefatos de sistema
 *.log
 .DS_Store

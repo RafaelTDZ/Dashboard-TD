@@ -68,6 +68,37 @@ persistence.js → import.js → app.js
 
 A chave publishable embutida no cliente é pública e o papel `anon` tem apenas `SELECT` e `INSERT` sobre a tabela — `UPDATE`, `DELETE` e `TRUNCATE` são recusados pelo próprio banco (o `TRUNCATE` não passa pela RLS, por isso foi revogado junto com os demais). O `created_at` e o `updated_at` são gerados pelo servidor: o que o cliente envia é ignorado. A função do trigger é `SECURITY DEFINER`, roda como dono da tabela — é ela quem apaga o snapshot anterior — e não pode ser chamada pelo cliente.
 
+## Conexão com o banco (migrations e `db push`)
+
+O host direto `db.<project-ref>.supabase.co` publica **apenas registro AAAA (IPv6)**. Em rede sem rota IPv6 — o caso da maioria das conexões residenciais — o `supabase db push`, o `psql` e qualquer cliente Postgres falham com `dial error: timeout: context deadline exceeded`, apontando para um endereço `2600:1f1e:...` (AWS `sa-east-1`). O **pooler** (Supavisor) tem IPv4 e resolve isso sem custo.
+
+| Uso | Host · porta |
+|---|---|
+| Migrations, `db push`, `psql`, GUI | `aws-0-sa-east-1.pooler.supabase.com` · **5432** (session) |
+| Aplicação serverless / driver | `aws-0-sa-east-1.pooler.supabase.com` · **6543** (transaction) |
+
+No pooler o usuário é `postgres.<project-ref>` (com ponto), não apenas `postgres`:
+
+```text
+postgresql://postgres.bsczvemaqvladupmdpgl:<SENHA>@aws-0-sa-east-1.pooler.supabase.com:5432/postgres
+```
+
+A senha não é versionada: fica na variável `SUPABASE_DB_PASSWORD` (modelo em `.env.example`; `.env` está no `.gitignore`).
+
+```powershell
+$env:SUPABASE_DB_PASSWORD = "<senha do banco>"
+supabase db push --db-url "postgresql://postgres.bsczvemaqvladupmdpgl:$env:SUPABASE_DB_PASSWORD@aws-0-sa-east-1.pooler.supabase.com:5432/postgres"
+```
+
+O SQL Editor do dashboard e o MCP do Supabase não passam por esse socket — usam HTTPS —, por isso continuam funcionando em rede sem IPv6. Se a rede passar a ter IPv6 (ou o projeto receber o add-on IPv4, pago), o host direto volta a funcionar e o `--db-url` pode ser dispensado.
+
+Verificação rápida: numa rede sem IPv6, a porta 5432 do pooler responde e a do host direto não.
+
+```powershell
+(Test-NetConnection aws-0-sa-east-1.pooler.supabase.com -Port 5432).TcpTestSucceeded
+(Test-NetConnection db.bsczvemaqvladupmdpgl.supabase.co -Port 5432).TcpTestSucceeded
+```
+
 ## Segurança da escrita, histórico e rollback (F4)
 
 **Decisão A (opção A) — escrita pública documentada.** A escrita continua pública: a chave publishable embutida no cliente permite que qualquer pessoa com acesso à página insira um snapshot em `excel_imports`. O trigger `excel_imports_single_latest` valida que a lista não está vazia, que cada registro tem `operacao`, que não há chaves duplicadas e que o arquivo é um superset dos processos já gravados. Ele **não valida os valores** dos registros: um cliente mal-intencionado (ou um arquivo errado) pode enviar um superset com valores alterados, campos trocados ou registros inventados. Esse é o **risco residual** aceito nesta decisão. A leitura também é pública.
@@ -153,7 +184,7 @@ O site em produção é publicado pela Vercel a partir deste repositório no Git
 ## Higiene do repositório
 
 - **Fim de linha**: o `.gitattributes` normaliza tudo para **LF** no repositório. Sem isso, a suíte falhava no Windows (os testes de SQL comparavam arquivos com CRLF) — o checkout local pode exibir CRLF, mas o que está versionado é LF.
-- **`.gitignore`** cobre `node_modules/`, `.vercel/`, `.agents/`, `*.log` e o resto dos artefatos locais. O `.agents/` (skill do Supabase via MCP) fica **fora** do versionamento por decisão registrada.
+- **`.gitignore`** cobre `node_modules/`, `.vercel/`, `.agents/`, `.env`/`.env.local`, `*.log` e o resto dos artefatos locais. O `.agents/` (skill do Supabase via MCP) fica **fora** do versionamento por decisão registrada.
 - **CI**: `.github/workflows/test.yml` roda `node --test` em **Linux e Windows** a cada push e pull request. Não há ESLint, Prettier nem type check no projeto.
 - **Sem build no deploy**: o único artefato gerado é `assets/css/tailwind.css`, versionado no repositório e regenerado sob demanda com `npm run build:css`.
 - **Documento único**: o `ANALISE.md` reúne a análise estrutural, a auditoria dos 34 itens originais, as decisões (D1–D5) e o registro de execução. O README é o documento operacional; o `ANALISE.md` é o histórico com as medições e as justificativas.
@@ -207,7 +238,8 @@ Get-ChildItem assets/js -Filter *.js | ForEach-Object { node --check $_.FullName
 - `tests/` — suíte `node --test` (15 arquivos, 148 testes).
 - `.github/workflows/test.yml` — CI da suíte em Linux e Windows.
 - `.gitattributes` — normalização de fim de linha (LF) e regras de diff.
-- `.gitignore` — dependências locais, metadados de deploy e ferramentas de agentes.
+- `.gitignore` — dependências locais, metadados de deploy, segredos locais (`.env`) e ferramentas de agentes.
+- `.env.example` — modelo da senha do banco para rodar migrations pelo pooler (o valor real fica fora do versionamento).
 - `data/` — planilha de referência do smoke test.
 - `vendor/` — bibliotecas offline (SheetJS/XLSX, Chart.js, Font Awesome, Plus Jakarta Sans v12 e Vercel Analytics).
 - `ANALISE.md` — análise estrutural, auditoria dos 34 itens originais, decisões e registro de execução.
